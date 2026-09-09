@@ -149,3 +149,69 @@ test.describe('bounding box editing', () => {
     await expect(page.getByTestId('selection-label')).toContainText('more')
   })
 })
+
+test.describe('marquee selection', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/')
+    await expect
+      .poll(async () =>
+        Number.parseInt((await page.getByTestId('box-count').innerText()).replace(/\D/g, ''), 10),
+      )
+      .toBeGreaterThan(0)
+  })
+
+  async function sweep(
+    page: Page,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    isAdditive = false,
+  ): Promise<void> {
+    const viewportBox = await page.locator(CANVAS_CONTAINER).boundingBox()
+    await page.keyboard.down('Shift')
+    if (isAdditive) {
+      await page.keyboard.down('ControlOrMeta')
+    }
+    await page.mouse.move(viewportBox!.x + from.x, viewportBox!.y + from.y)
+    await page.mouse.down()
+    await page.mouse.move(viewportBox!.x + to.x, viewportBox!.y + to.y, { steps: 10 })
+    await page.mouse.up()
+    if (isAdditive) {
+      await page.keyboard.up('ControlOrMeta')
+    }
+    await page.keyboard.up('Shift')
+  }
+
+  async function readSelectionCount(page: Page): Promise<number> {
+    if ((await page.getByTestId('selection-count').count()) === 0) {
+      return 0
+    }
+    const text = await page.getByTestId('selection-count').innerText()
+    return text.includes('boxes') ? Number.parseInt(text, 10) : 1
+  }
+
+  test('replaces the previous selection on a fresh sweep', async ({ page }) => {
+    await sweep(page, { x: 380, y: 240 }, { x: 700, y: 520 })
+    await expect.poll(() => readSelectionCount(page)).toBeGreaterThan(1)
+
+    // An empty region must clear the selection, not leave the old one behind.
+    await sweep(page, { x: 120, y: 700 }, { x: 200, y: 780 })
+    await expect.poll(() => readSelectionCount(page)).toBe(0)
+  })
+
+  test('adds to the selection when Cmd/Ctrl is held as well', async ({ page }) => {
+    await sweep(page, { x: 380, y: 240 }, { x: 700, y: 400 })
+    const firstSweepCount = await readSelectionCount(page)
+    expect(firstSweepCount).toBeGreaterThan(0)
+
+    await sweep(page, { x: 380, y: 420 }, { x: 700, y: 560 }, true)
+    await expect.poll(() => readSelectionCount(page)).toBeGreaterThan(firstSweepCount)
+  })
+
+  test('lists every selected box, not only the primary one', async ({ page }) => {
+    await sweep(page, { x: 380, y: 240 }, { x: 700, y: 520 })
+
+    const selectionCount = await readSelectionCount(page)
+    expect(selectionCount).toBeGreaterThan(1)
+    await expect(page.getByRole('listitem')).toHaveCount(Math.min(selectionCount, 60))
+  })
+})

@@ -63,6 +63,7 @@ layoutEditor.subscribe((changeKind) => {
       mirrorHistory()
       break
     case 'geometry':
+    case 'interaction':
       break
   }
 })

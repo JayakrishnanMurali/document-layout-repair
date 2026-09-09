@@ -81,11 +81,19 @@ export class ViewportInputController {
     this.element.addEventListener('pointerup', this.handlePointerUp)
     this.element.addEventListener('pointercancel', this.handlePointerCancel)
     this.element.addEventListener('pointerleave', this.handlePointerLeave)
+    this.element.addEventListener('lostpointercapture', this.handleLostPointerCapture)
     this.element.addEventListener('wheel', this.handleWheel, { passive: false })
     this.element.addEventListener('keydown', this.handleKeyDown)
     this.element.addEventListener('keyup', this.handleKeyUp)
     this.element.addEventListener('blur', this.handleBlur)
     this.element.addEventListener('contextmenu', this.handleContextMenu)
+
+    // A button released outside the window — or while the tab is hidden — never reaches
+    // the element, which would otherwise leave the pan latched to the pointer.
+    window.addEventListener('pointerup', this.handleWindowPointerUp)
+    window.addEventListener('pointercancel', this.handleWindowPointerUp)
+    window.addEventListener('blur', this.handleWindowBlur)
+    document.addEventListener('visibilitychange', this.handleVisibilityChange)
   }
 
   setGestureHandlers(gestureHandlers: PointerGestureHandler[]): void {
@@ -98,16 +106,45 @@ export class ViewportInputController {
     this.element.removeEventListener('pointerup', this.handlePointerUp)
     this.element.removeEventListener('pointercancel', this.handlePointerCancel)
     this.element.removeEventListener('pointerleave', this.handlePointerLeave)
+    this.element.removeEventListener('lostpointercapture', this.handleLostPointerCapture)
     this.element.removeEventListener('wheel', this.handleWheel)
     this.element.removeEventListener('keydown', this.handleKeyDown)
     this.element.removeEventListener('keyup', this.handleKeyUp)
     this.element.removeEventListener('blur', this.handleBlur)
     this.element.removeEventListener('contextmenu', this.handleContextMenu)
+    window.removeEventListener('pointerup', this.handleWindowPointerUp)
+    window.removeEventListener('pointercancel', this.handleWindowPointerUp)
+    window.removeEventListener('blur', this.handleWindowBlur)
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange)
     this.activePointers.clear()
   }
 
   private get isPanning(): boolean {
     return this.panPointerId !== null
+  }
+
+  private get isDragging(): boolean {
+    return this.panPointerId !== null || this.activeGestureHandler !== null
+  }
+
+  /**
+   * Ends a drag when we cannot know where the pointer is any more (the window lost
+   * focus, the tab was hidden). An open tool gesture keeps the edit it has already
+   * applied, since the reviewer did move the box; only the drag itself stops.
+   */
+  private endDragWithoutRelease(): void {
+    if (this.activeGestureHandler) {
+      this.activeGestureHandler.onPointerUp(
+        new PointerEvent('pointerup'),
+        this.gestureContext,
+      )
+      this.activeGestureHandler = null
+    }
+    this.panPointerId = null
+    this.isSpaceKeyHeld = false
+    this.activePointers.clear()
+    this.pinchStartDistance = 0
+    this.updateCursor(null)
   }
 
   private getScreenPoint(event: PointerEvent | WheelEvent): Point {
@@ -182,6 +219,13 @@ export class ViewportInputController {
       return
     }
 
+    // The button came back up somewhere we never heard about it: end the drag here
+    // rather than following the pointer around.
+    if (this.isDragging && event.buttons === 0) {
+      this.finishDrag(event, this.updateGestureContext(screenPoint))
+      return
+    }
+
     if (
       Math.abs(screenPoint.x - this.pressStartScreenX) > TAP_MOVEMENT_TOLERANCE_IN_SCREEN_PIXELS ||
       Math.abs(screenPoint.y - this.pressStartScreenY) > TAP_MOVEMENT_TOLERANCE_IN_SCREEN_PIXELS
@@ -212,25 +256,30 @@ export class ViewportInputController {
 
   private readonly handlePointerUp = (event: PointerEvent): void => {
     this.activePointers.delete(event.pointerId)
-    const screenPoint = this.getScreenPoint(event)
-    const context = this.updateGestureContext(screenPoint)
+    this.finishDrag(event, this.updateGestureContext(this.getScreenPoint(event)))
+  }
 
+  /** Ends whatever the press started: a tool gesture, a pan, or a tap. */
+  private finishDrag(event: PointerEvent, context: PointerGestureContext): void {
     if (this.activeGestureHandler) {
       this.activeGestureHandler.onPointerUp(event, context)
       this.activeGestureHandler = null
       this.releasePointer(event.pointerId)
+      this.updateCursor(null)
       return
     }
 
-    const isTap =
-      !this.hasPressMovedBeyondTapTolerance &&
-      event.timeStamp - this.pressStartTimestamp < TAP_DURATION_LIMIT_MILLISECONDS
-
-    if (this.panPointerId === event.pointerId) {
+    const wasPanning = this.panPointerId !== null
+    if (wasPanning) {
+      this.releasePointer(this.panPointerId ?? event.pointerId)
       this.panPointerId = null
-      this.releasePointer(event.pointerId)
       this.updateCursor(null)
     }
+
+    const isTap =
+      wasPanning &&
+      !this.hasPressMovedBeyondTapTolerance &&
+      event.timeStamp - this.pressStartTimestamp < TAP_DURATION_LIMIT_MILLISECONDS
 
     if (isTap && !this.isSpaceKeyHeld) {
       this.onTap?.(context.worldPoint, event)
@@ -249,6 +298,35 @@ export class ViewportInputController {
       this.releasePointer(event.pointerId)
     }
     this.updateCursor(null)
+  }
+
+  /**
+   * Fires when the release happened outside this element — outside the window, even.
+   * Without pointer capture we would never learn the drag had ended.
+   */
+  private readonly handleWindowPointerUp = (event: PointerEvent): void => {
+    if (!this.isDragging || event.target === this.element) {
+      return
+    }
+    this.activePointers.delete(event.pointerId)
+    this.finishDrag(event, this.updateGestureContext(this.getScreenPoint(event)))
+  }
+
+  private readonly handleWindowBlur = (): void => {
+    this.endDragWithoutRelease()
+  }
+
+  private readonly handleVisibilityChange = (): void => {
+    if (document.visibilityState === 'hidden') {
+      this.endDragWithoutRelease()
+    }
+  }
+
+  private readonly handleLostPointerCapture = (event: PointerEvent): void => {
+    if (this.isDragging) {
+      this.activePointers.delete(event.pointerId)
+      this.finishDrag(event, this.updateGestureContext(this.getScreenPoint(event)))
+    }
   }
 
   private readonly handlePointerLeave = (): void => {
@@ -324,9 +402,6 @@ export class ViewportInputController {
 
   private readonly handleBlur = (): void => {
     this.isSpaceKeyHeld = false
-    this.panPointerId = null
-    this.cancelActiveGesture()
-    this.activePointers.clear()
     this.updateCursor(null)
   }
 

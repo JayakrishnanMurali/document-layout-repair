@@ -20,6 +20,10 @@ export type MarqueeSelectGestureHandlerOptions = {
  * Shift is what separates it from panning, which owns the plain drag on empty canvas.
  * Boxes must be fully enclosed to be picked up, so a marquee across a paragraph selects
  * its lines without also grabbing the page-wide blocks it happens to cross.
+ *
+ * A marquee replaces the selection, which is what a fresh sweep is expected to do; hold
+ * Cmd/Ctrl as well to add to what is already selected. Shift-clicking without dragging
+ * toggles the single box under the pointer.
  */
 export class MarqueeSelectGestureHandler implements PointerGestureHandler {
   readonly name = 'marqueeSelect'
@@ -30,7 +34,10 @@ export class MarqueeSelectGestureHandler implements PointerGestureHandler {
 
   private anchorWorldPoint: Point | null = null
   private anchorScreenPoint: Point | null = null
+  /** Selection to restore on cancel. */
   private selectionBeforeGesture: number[] = []
+  /** Selection the marquee builds on: the previous one only when adding. */
+  private retainedSelection: number[] = []
 
   constructor(options: MarqueeSelectGestureHandlerOptions) {
     this.editor = options.editor
@@ -46,6 +53,7 @@ export class MarqueeSelectGestureHandler implements PointerGestureHandler {
     this.anchorWorldPoint = { ...context.worldPoint }
     this.anchorScreenPoint = { ...context.screenPoint }
     this.selectionBeforeGesture = [...this.editor.selectedNodeIds]
+    this.retainedSelection = event.metaKey || event.ctrlKey ? [...this.editor.selectedNodeIds] : []
     return true
   }
 
@@ -68,9 +76,7 @@ export class MarqueeSelectGestureHandler implements PointerGestureHandler {
       marqueeWorldRect,
       'contained',
     )
-    this.editor.setSelection([
-      ...new Set([...this.selectionBeforeGesture, ...enclosedNodeIds]),
-    ])
+    this.editor.setSelection([...new Set([...this.retainedSelection, ...enclosedNodeIds])])
   }
 
   onPointerUp(_event: PointerEvent, context: PointerGestureContext): void {
@@ -85,6 +91,8 @@ export class MarqueeSelectGestureHandler implements PointerGestureHandler {
     this.reset()
 
     if (wasClickWithoutDrag) {
+      // No sweep happened, so leave the existing selection alone and toggle one box.
+      this.editor.setSelection(this.selectionBeforeGesture)
       this.onToggleAtWorldPoint(context.worldPoint)
     }
   }

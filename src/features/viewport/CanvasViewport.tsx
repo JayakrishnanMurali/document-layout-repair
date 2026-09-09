@@ -72,6 +72,8 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
     engine.addLayer(interactionLayer)
 
     const unsubscribeFromEditor = layoutEditor.subscribe((changeKind) => {
+      // Only a geometry or document change can move a box, so only those re-cull the
+      // instanced overlay; selection and chrome repaint the interaction layer alone.
       if (changeKind === 'geometry' || changeKind === 'document') {
         overlayBoxLayer.invalidateDocument()
         engine.markDirty(overlayBoxLayer.name)

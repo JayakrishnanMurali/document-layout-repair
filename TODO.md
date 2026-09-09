@@ -83,6 +83,9 @@ handles, snap guides and labels. All three share one camera transform.
 - [x] Unit tests: inverse correctness, randomized undo round-trip, 50+ depth, snap
       solver vs. linear scan, handle hit-testing
 - [x] Playwright coverage: drag/undo/redo, gesture coalescing, re-label, marquee
+- [x] Marquee replaces the selection; Cmd/Ctrl adds to it; clearing it repaints
+- [x] Inspector lists the whole multi-selection, and re-labelling applies to all of it
+- [x] A drag ends when the button is released off-window, off-element or while hidden
 
 ## Phase 5 — Tree view & bi-directional grounding (Module D)
 

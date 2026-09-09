@@ -103,3 +103,55 @@
   height: 8px;
   border-radius: 2px;
 }
+
+.selectionList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.selectionRow,
+.selectionRowActive {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.selectionRow:hover {
+  background: var(--surface-hover);
+}
+
+.selectionRowActive {
+  background: var(--accent-dim);
+}
+
+.selectionRowClass {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.selectionRowText {
+  flex: 1 1 auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.overflowNote {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+}

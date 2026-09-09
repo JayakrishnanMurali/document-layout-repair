@@ -16,10 +16,17 @@ import styles from './SelectionInspector.module.css'
  * box. Re-labelling goes through the same transaction stack as a drag, so it undoes with
  * the same keystroke.
  */
+const MAXIMUM_LISTED_SELECTION_ROWS = 60
+
+function truncate(text: string, maximumLength: number): string {
+  return text.length > maximumLength ? `${text.slice(0, maximumLength)}…` : text
+}
+
 export function SelectionInspector() {
   const layoutDocument = useDocumentStore((state) => state.document)
   const selectedNodeId = usePrimarySelectedNodeId()
-  const selectedNodeCount = useEditorStore((state) => state.selectedNodeIds.length)
+  const selectedNodeIds = useEditorStore((state) => state.selectedNodeIds)
+  const selectedNodeCount = selectedNodeIds.length
   // Re-read after every committed transaction so the geometry shown stays current.
   useEditorStore((state) => state.undoDepth)
 
@@ -47,10 +54,49 @@ export function SelectionInspector() {
     <div className={styles.panel}>
       <div className={styles.header}>
         <span>Selection</span>
-        <span className={styles.fieldLabel}>
-          {selectedNodeCount > 1 ? `${selectedNodeCount} boxes` : layoutDocument.sourceNodeIds[selectedNodeId]}
+        <span className={styles.fieldLabel} data-testid="selection-count">
+          {selectedNodeCount > 1
+            ? `${selectedNodeCount} boxes`
+            : layoutDocument.sourceNodeIds[selectedNodeId]}
         </span>
       </div>
+
+      {selectedNodeCount > 1 && (
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>Selected boxes</h3>
+          <ul className={styles.selectionList}>
+            {selectedNodeIds
+              .slice(-MAXIMUM_LISTED_SELECTION_ROWS)
+              .reverse()
+              .map((nodeId) => {
+                const rowText = layoutDocument.texts[nodeId]
+                return (
+                  <li key={nodeId}>
+                    <button
+                      type="button"
+                      className={
+                        nodeId === selectedNodeId ? styles.selectionRowActive : styles.selectionRow
+                      }
+                      onClick={() => layoutEditor.selectNode(nodeId, 'replace')}
+                    >
+                      <span className={styles.selectionRowClass}>
+                        {getLayoutNodeClassName(geometry.classIds[nodeId])}
+                      </span>
+                      <span className={styles.selectionRowText}>
+                        {rowText ? truncate(rowText, 42) : '—'}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+          </ul>
+          {selectedNodeCount > MAXIMUM_LISTED_SELECTION_ROWS && (
+            <p className={styles.overflowNote}>
+              showing the {MAXIMUM_LISTED_SELECTION_ROWS} most recent of {selectedNodeCount}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>Properties</h3>
@@ -83,7 +129,9 @@ export function SelectionInspector() {
       </div>
 
       <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>Re-label</h3>
+        <h3 className={styles.sectionTitle}>
+          {selectedNodeCount > 1 ? `Re-label ${selectedNodeCount} boxes` : 'Re-label'}
+        </h3>
         <div className={styles.classGrid}>
           {LAYOUT_NODE_CLASSES.map((candidateClassName) => {
             const style = NODE_CLASS_STYLES[candidateClassName]
@@ -95,13 +143,14 @@ export function SelectionInspector() {
                 className={isActive ? styles.classChipActive : styles.classChip}
                 aria-pressed={isActive}
                 onClick={() =>
-                  layoutEditor.commit('Re-label box', [
-                    {
+                  layoutEditor.commit(
+                    selectedNodeCount > 1 ? `Re-label ${selectedNodeCount} boxes` : 'Re-label box',
+                    selectedNodeIds.map((nodeId) => ({
                       kind: 'setNodeClass',
-                      nodeId: selectedNodeId,
+                      nodeId,
                       classId: getLayoutNodeClassId(candidateClassName),
-                    },
-                  ])
+                    })),
+                  )
                 }
               >
                 <span
@@ -119,7 +168,9 @@ export function SelectionInspector() {
 
       {text && (
         <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>Extracted text</h3>
+          <h3 className={styles.sectionTitle}>
+            Extracted text{selectedNodeCount > 1 ? ' · primary box' : ''}
+          </h3>
           <p className={styles.text}>{text}</p>
         </div>
       )}

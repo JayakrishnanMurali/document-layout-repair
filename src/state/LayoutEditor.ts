@@ -16,7 +16,12 @@ import type { LayoutMutation } from './history/layoutMutations'
 
 export type SelectionMode = 'replace' | 'toggle'
 
-export type EditorChangeKind = 'selection' | 'geometry' | 'history' | 'document'
+/**
+ * `interaction` covers chrome-only changes — snap guides, the active handle, the marquee
+ * rectangle. It must still trigger a repaint (otherwise a released marquee stays drawn),
+ * but it deliberately carries no store state, so a drag never re-renders React.
+ */
+export type EditorChangeKind = 'selection' | 'geometry' | 'history' | 'document' | 'interaction'
 
 export type LayoutEditorOptions = {
   /** Replays committed geometry changes into the worker that owns the spatial index. */
@@ -143,15 +148,27 @@ export class LayoutEditor {
   // --- interaction chrome --------------------------------------------------------
 
   setActiveHandleId(handleId: BoxHandleId | null): void {
+    if (this.interactionState.activeHandleId === handleId) {
+      return
+    }
     this.interactionState.activeHandleId = handleId
+    this.notify('interaction')
   }
 
   setSnapGuides(guides: SnapGuide[]): void {
+    if (this.interactionState.snapGuides.length === 0 && guides.length === 0) {
+      return
+    }
     this.interactionState.snapGuides = guides
+    this.notify('interaction')
   }
 
   setMarqueeWorldRect(rect: Rect | null): void {
+    if (this.interactionState.marqueeWorldRect === null && rect === null) {
+      return
+    }
     this.interactionState.marqueeWorldRect = rect
+    this.notify('interaction')
   }
 
   // --- editing -------------------------------------------------------------------
