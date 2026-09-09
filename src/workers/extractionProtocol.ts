@@ -100,7 +100,13 @@ export type ExtractionWorkerResponse =
       statistics: ExtractionStreamStatistics
     }
   | { kind: 'streamCompleted'; requestId: number; statistics: ExtractionStreamStatistics }
-  | { kind: 'streamFailed'; requestId: number; reason: string }
+  | {
+      kind: 'streamFailed'
+      requestId: number
+      reason: string
+      /** Pages already delivered, which decides whether restarting is safe. */
+      ingestedPageCount: number
+    }
   | { kind: 'workerFailed'; requestId: number; reason: string }
 
 /** Transfer list for a `documentReady` response: the geometry buffers move, not copy. */

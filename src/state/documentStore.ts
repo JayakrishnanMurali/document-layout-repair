@@ -235,14 +235,15 @@ function beginStream(
       onCompleted: (statistics) =>
         set({ streamStatus: 'completed', streamStatistics: statistics }),
 
-      onFailed: (reason) => {
-        if (source === 'sse') {
-          // No endpoint behind this deployment: fall back to generating the same
-          // sequence inside the worker.
+      onFailed: (failure) => {
+        // Falling back restarts the document from empty, which would discard both the
+        // pages already delivered and any edits made to them — so it is only for a
+        // stream that never started: a deployment with no endpoint behind it.
+        if (source === 'sse' && failure.ingestedPageCount === 0) {
           beginStream(preset, 'simulated', set, get)
           return
         }
-        set({ streamStatus: 'failed', streamFailureReason: reason })
+        set({ streamStatus: 'failed', streamFailureReason: failure.reason })
       },
     },
   )

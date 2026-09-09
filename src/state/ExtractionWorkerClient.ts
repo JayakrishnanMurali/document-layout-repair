@@ -51,7 +51,7 @@ export type StreamSubscriber = {
     statistics: ExtractionStreamStatistics,
   ) => void
   onCompleted: (statistics: ExtractionStreamStatistics) => void
-  onFailed: (reason: string) => void
+  onFailed: (failure: { reason: string; ingestedPageCount: number }) => void
 }
 
 type PendingRequest = {
@@ -285,7 +285,10 @@ export class ExtractionWorkerClient {
         if (message.requestId === this.activeStreamRequestId) {
           const subscriber = this.streamSubscriber
           this.activeStreamRequestId = 0
-          subscriber?.onFailed(message.reason)
+          subscriber?.onFailed({
+            reason: message.reason,
+            ingestedPageCount: message.ingestedPageCount,
+          })
         }
         break
 

@@ -134,7 +134,7 @@ Consciously left out, and why:
 | `npm run build` · `npm run preview` | Typecheck and build · serve the build with the endpoint |
 | `npm run typecheck` · `npm run lint` | TypeScript project check · ESLint |
 | `npm test` | Vitest suite — 198 tests |
-| `npm run test:e2e` | Playwright suite — 49 tests |
+| `npm run test:e2e` | Playwright suite — 50 tests |
 | `npm run perf:pan` | Frame statistics before, during and after a continuous pan |
 | `npm run perf:trace` | A DevTools timeline recording plus the HUD mid-pan |
 | `npm run perf:stream` | The stream panel captured mid-ingestion |

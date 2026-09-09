@@ -203,13 +203,31 @@ function startStream(
       if (activeStream !== stream) {
         return
       }
-      // The endpoint closes the connection when the document is done, which EventSource
-      // reports as an error; only a failure before the first event is worth surfacing.
+
+      // EventSource reports the end of a stream as an error, so what this means depends
+      // entirely on how far the document got.
       if (stream.statistics.eventCount === 0) {
         post({
           kind: 'streamFailed',
           requestId: stream.requestId,
           reason: `Could not reach ${request.streamUrl}`,
+          ingestedPageCount: 0,
+        })
+      } else if (stream.statistics.ingestedPageCount >= request.pageCount) {
+        // Every page arrived; the endpoint simply closed the finished connection.
+        post({
+          kind: 'streamCompleted',
+          requestId: stream.requestId,
+          statistics: { ...stream.statistics },
+        })
+      } else {
+        // Dropped part way through. Saying so beats leaving the workspace claiming to
+        // still be streaming a document that stopped arriving.
+        post({
+          kind: 'streamFailed',
+          requestId: stream.requestId,
+          reason: `Connection closed after ${stream.statistics.ingestedPageCount} of ${request.pageCount} pages`,
+          ingestedPageCount: stream.statistics.ingestedPageCount,
         })
       }
       stopStream()
