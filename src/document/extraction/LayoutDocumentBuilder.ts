@@ -1,4 +1,8 @@
-import { computePageBounds } from '@/document/pageLayout'
+import {
+  createDocumentPageLayout,
+  getPageBounds,
+  type DocumentPageLayout,
+} from '@/document/pageLayout'
 import {
   LOW_CONFIDENCE_THRESHOLD,
   NODE_FLAG_LOW_CONFIDENCE,
@@ -85,9 +89,11 @@ export class LayoutDocumentBuilder {
   private readonly ingestedPageIndexes = new Set<number>()
   private readonly cellReferencesByTableSourceId = new Map<string, TableCellReference[]>()
   private readonly pageCount: number
+  private readonly pageLayout: DocumentPageLayout
 
   constructor(pageCount: number) {
     this.pageCount = pageCount
+    this.pageLayout = createDocumentPageLayout(pageCount)
     this.pageNodeRanges = Array.from({ length: pageCount }, (_unused, pageIndex) => ({
       pageIndex,
       firstNodeId: 0,
@@ -126,7 +132,7 @@ export class LayoutDocumentBuilder {
       }
     }
 
-    const pageBounds = computePageBounds(pageIndex)
+    const pageBounds = getPageBounds(this.pageLayout, pageIndex)
     const firstNodeId = this.geometry.nodeCount
     growGeometry(this.geometry, firstNodeId + payload.boxes.length)
 

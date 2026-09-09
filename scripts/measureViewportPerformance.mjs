@@ -32,6 +32,10 @@ await page.goto(previewUrl)
 await page.getByRole('button', { name: new RegExp(presetName) }).click()
 await page.waitForTimeout(600)
 
+if (process.env.CULLING === 'off') {
+  await page.getByRole('button', { name: /Culling on/ }).click()
+}
+
 const viewport = page.locator('[aria-label="Document layout canvas"]')
 await viewport.hover({ position: { x: 520, y: 400 } })
 if (wheelDelta !== 0) {

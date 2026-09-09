@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computePageBounds } from '@/document/pageLayout'
+import { createDocumentPageLayout, getPageBounds } from '@/document/pageLayout'
 import {
   BLOCK_LEVEL_CLASSES,
   getLayoutNodeClassName,
@@ -28,6 +28,7 @@ function buildDocument(pageCount: number, documentSeed: number): LayoutDocument 
 
 describe('stress test document', () => {
   const document = buildDocument(STRESS_TEST_PAGE_COUNT, STRESS_TEST_DOCUMENT_SEED)
+  const stressPageLayout = createDocumentPageLayout(STRESS_TEST_PAGE_COUNT)
 
   it('reaches the 10,000 bounding box benchmark across 100 pages', () => {
     expect(document.pageCount).toBe(STRESS_TEST_PAGE_COUNT)
@@ -38,7 +39,7 @@ describe('stress test document', () => {
     const { geometry } = document
 
     for (let nodeId = 0; nodeId < geometry.nodeCount; nodeId += 1) {
-      const pageBounds = computePageBounds(geometry.pageIndexes[nodeId])
+      const pageBounds = getPageBounds(stressPageLayout, geometry.pageIndexes[nodeId])
       const offset = nodeId * 4
       const x = geometry.bounds[offset]
       const y = geometry.bounds[offset + 1]

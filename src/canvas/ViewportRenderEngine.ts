@@ -2,6 +2,7 @@ import type { Rect, Size } from '@/canvas/geometry'
 import { FrameStatistics, type FrameStatisticsSnapshot } from '@/canvas/FrameStatistics'
 import { RenderScheduler } from '@/canvas/RenderScheduler'
 import type { CanvasBackingSize, RenderFrame, RenderLayer } from '@/canvas/renderTypes'
+import { createDocumentPageLayout, type DocumentPageLayout } from '@/document/pageLayout'
 import {
   createCamera,
   getVisibleWorldRect,
@@ -46,19 +47,19 @@ export class ViewportRenderEngine {
     viewportSize: { width: 0, height: 0 },
     devicePixelRatio: 1,
     visibleWorldRect: { x: 0, y: 0, width: 0, height: 0 },
-    pageCount: 0,
+    pageLayout: createDocumentPageLayout(0),
     timestampMilliseconds: 0,
   }
 
   private camera: Camera = createCamera(0, 0, 0.5)
   private viewportSize: Size = { width: 0, height: 0 }
   private devicePixelRatio = 1
-  private pageCount: number
+  private pageLayout: DocumentPageLayout
   private isDisposed = false
 
   constructor(options: ViewportRenderEngineOptions) {
     this.container = options.container
-    this.pageCount = options.pageCount
+    this.pageLayout = createDocumentPageLayout(options.pageCount)
     this.onStatistics = options.onStatistics
     this.onCameraChange = options.onCameraChange
 
@@ -140,8 +141,12 @@ export class ViewportRenderEngine {
     )
   }
 
+  getPageLayout(): DocumentPageLayout {
+    return this.pageLayout
+  }
+
   setPageCount(pageCount: number): void {
-    this.pageCount = pageCount
+    this.pageLayout = createDocumentPageLayout(pageCount)
     this.markAllDirty()
   }
 
@@ -239,7 +244,7 @@ export class ViewportRenderEngine {
     frame.camera = this.camera
     frame.viewportSize = this.viewportSize
     frame.devicePixelRatio = this.devicePixelRatio
-    frame.pageCount = this.pageCount
+    frame.pageLayout = this.pageLayout
     frame.timestampMilliseconds = timestampMilliseconds
     frame.visibleWorldRect.x = this.camera.worldX
     frame.visibleWorldRect.y = this.camera.worldY

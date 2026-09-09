@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
+import type { FrameStatisticsSnapshot } from '@/canvas/FrameStatistics'
 import { ViewportInputController } from '@/canvas/input/ViewportInputController'
-import { PageRasterLayer } from '@/canvas/layers/PageRasterLayer'
+import { OverlayBoxLayer, type OverlayBoxLayerStatistics } from '@/canvas/layers/OverlayBoxLayer'
+import { PageRasterLayer, type PageRasterLayerStatistics } from '@/canvas/layers/PageRasterLayer'
 import { ViewportRenderEngine } from '@/canvas/ViewportRenderEngine'
 import { fitWorldRectInViewport } from '@/canvas/viewport/camera'
-import type { FrameStatisticsSnapshot } from '@/canvas/FrameStatistics'
-import { computeDocumentBounds, computePageBounds } from '@/document/pageLayout'
+import { createDocumentPageLayout, getDocumentBounds, getPageBounds } from '@/document/pageLayout'
 import { useDocumentStore } from '@/state/documentStore'
+import { useWorkspaceStore } from '@/state/workspaceStore'
 import { ViewportStatisticsOverlay } from './ViewportStatisticsOverlay'
 import styles from './CanvasViewport.module.css'
 
@@ -14,7 +16,9 @@ export type CanvasViewportProps = {
   documentSeed: number
 }
 
-const EMPTY_STATISTICS: FrameStatisticsSnapshot = {
+const LAYER_STATISTICS_INTERVAL_MILLISECONDS = 250
+
+const EMPTY_FRAME_STATISTICS: FrameStatisticsSnapshot = {
   framesPerSecond: 0,
   lastFrameMilliseconds: 0,
   worstFrameMilliseconds: 0,
@@ -24,7 +28,9 @@ const EMPTY_STATISTICS: FrameStatisticsSnapshot = {
 
 export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const [frameStatistics, setFrameStatistics] = useState(EMPTY_STATISTICS)
+  const [frameStatistics, setFrameStatistics] = useState(EMPTY_FRAME_STATISTICS)
+  const [overlayStatistics, setOverlayStatistics] = useState<OverlayBoxLayerStatistics | null>(null)
+  const [rasterStatistics, setRasterStatistics] = useState<PageRasterLayerStatistics | null>(null)
   const [zoomScale, setZoomScale] = useState(1)
 
   useEffect(() => {
@@ -45,28 +51,65 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
     )
     engine.addLayer(pageRasterLayer)
 
-    const fitFirstPage = () => {
-      engine.setCamera(fitWorldRectInViewport(computePageBounds(0), engine.getViewportSize()))
-    }
-    const fitWholeDocument = () => {
-      engine.setCamera(
-        fitWorldRectInViewport(computeDocumentBounds(pageCount), engine.getViewportSize()),
-      )
-    }
+    const overlayBoxLayer = new OverlayBoxLayer({
+      canvas: engine.createLayerCanvas(),
+      getDocument: () => useDocumentStore.getState().document,
+      getIsCullingEnabled: () => useWorkspaceStore.getState().isViewportCullingEnabled,
+      onContextRestored: () => engine.markDirty('overlayBoxes'),
+    })
+    engine.addLayer(overlayBoxLayer)
+
+    let lastSeenCullingSetting = useWorkspaceStore.getState().isViewportCullingEnabled
+    const unsubscribeFromWorkspace = useWorkspaceStore.subscribe((state) => {
+      if (state.isViewportCullingEnabled === lastSeenCullingSetting) {
+        return
+      }
+      lastSeenCullingSetting = state.isViewportCullingEnabled
+      engine.markDirty(overlayBoxLayer.name)
+    })
+
+    let lastSeenDocument = useDocumentStore.getState().document
+    const unsubscribeFromDocument = useDocumentStore.subscribe((state) => {
+      if (state.document === lastSeenDocument) {
+        return
+      }
+      lastSeenDocument = state.document
+      overlayBoxLayer.invalidateDocument()
+      engine.markDirty(overlayBoxLayer.name)
+    })
 
     const inputController = new ViewportInputController({
       element: container,
       engine,
-      onFitDocumentRequested: fitWholeDocument,
+      onFitDocumentRequested: () =>
+        engine.setCamera(
+          fitWorldRectInViewport(
+            getDocumentBounds(engine.getPageLayout()),
+            engine.getViewportSize(),
+          ),
+        ),
       onTap: (worldPoint) => {
         void useDocumentStore.getState().selectNodeAtWorldPoint(worldPoint.x, worldPoint.y)
       },
     })
 
-    fitFirstPage()
+    engine.setCamera(
+      fitWorldRectInViewport(
+        getPageBounds(createDocumentPageLayout(pageCount), 0),
+        engine.getViewportSize(),
+      ),
+    )
     setZoomScale(engine.getCamera().scale)
 
+    const layerStatisticsInterval = window.setInterval(() => {
+      setOverlayStatistics(overlayBoxLayer.statistics)
+      setRasterStatistics(pageRasterLayer.statistics)
+    }, LAYER_STATISTICS_INTERVAL_MILLISECONDS)
+
     return () => {
+      window.clearInterval(layerStatisticsInterval)
+      unsubscribeFromDocument()
+      unsubscribeFromWorkspace()
       inputController.dispose()
       engine.dispose()
     }
@@ -74,7 +117,12 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
 
   return (
     <div className={styles.viewport} ref={containerRef} aria-label="Document layout canvas">
-      <ViewportStatisticsOverlay statistics={frameStatistics} zoomScale={zoomScale} />
+      <ViewportStatisticsOverlay
+        frameStatistics={frameStatistics}
+        overlayStatistics={overlayStatistics}
+        rasterStatistics={rasterStatistics}
+        zoomScale={zoomScale}
+      />
     </div>
   )
 }

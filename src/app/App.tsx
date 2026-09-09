@@ -16,6 +16,8 @@ export function App() {
   const activePreset = useActiveDocumentPreset()
   const loadPreset = useWorkspaceStore((state) => state.loadPreset)
   const loadDocumentPreset = useDocumentStore((state) => state.loadPreset)
+  const isViewportCullingEnabled = useWorkspaceStore((state) => state.isViewportCullingEnabled)
+  const setViewportCullingEnabled = useWorkspaceStore((state) => state.setViewportCullingEnabled)
 
   useEffect(() => {
     void loadDocumentPreset(activePreset)
@@ -44,6 +46,16 @@ export function App() {
             )
           })}
         </div>
+
+        <button
+          type="button"
+          className={isViewportCullingEnabled ? styles.toggle : styles.toggleActive}
+          aria-pressed={!isViewportCullingEnabled}
+          title="Submit every box in the document each frame instead of only the visible ones"
+          onClick={() => setViewportCullingEnabled(!isViewportCullingEnabled)}
+        >
+          {isViewportCullingEnabled ? 'Culling on' : 'Culling off'}
+        </button>
       </header>
 
       <div className={styles.body}>

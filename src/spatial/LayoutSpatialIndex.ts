@@ -1,4 +1,4 @@
-import { computeDocumentBounds } from '@/document/pageLayout'
+import { createDocumentPageLayout, getDocumentBounds } from '@/document/pageLayout'
 import {
   NODE_FLAG_REMOVED,
   NO_LAYOUT_NODE_ID,
@@ -30,7 +30,7 @@ export class LayoutSpatialIndex {
   private readonly candidateScratch: number[] = []
 
   constructor(pageCount: number) {
-    const documentBounds = computeDocumentBounds(pageCount)
+    const documentBounds = getDocumentBounds(createDocumentPageLayout(pageCount))
     this.tree = new QuadTree({
       x: documentBounds.x - 64,
       y: documentBounds.y - 64,

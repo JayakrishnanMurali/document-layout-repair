@@ -54,14 +54,17 @@ handles, snap guides and labels. All three share one camera transform.
 
 ## Phase 3 — WebGL instanced overlay renderer (Module A)
 
-- [ ] WebGL2 context with 2D fallback path, context-loss recovery
-- [ ] Instanced quad program: per-instance rect, class colour, state flags
-- [ ] Single draw call for all visible boxes, border + fill in the fragment shader
-- [ ] Viewport culling feeding the instance buffer from the spatial index
-- [ ] Zoom-independent border width, crisp edges at any devicePixelRatio
-- [ ] Level-of-detail: fill-only below readable zoom, labels above it
-- [ ] Hover / selected / edited visual states without rebuilding buffers
-- [ ] Buffer reuse (no per-frame allocation), explicit GL resource disposal
+- [x] WebGL2 context with 2D fallback path, context-loss recovery
+- [x] Instanced quad program: per-instance rect, class colour, state flags
+- [x] Single draw call for all visible boxes, border + fill in the fragment shader
+- [x] Viewport culling from the document's page grid, cached for a padded envelope
+      so ordinary panning only updates the transform uniform
+- [x] Debug toggle that disables culling, to measure raw instance throughput
+- [x] Zoom-independent border width, crisp edges at any devicePixelRatio
+- [x] Level-of-detail: boxes collapse to a solid class tint below ~3 device pixels
+- [x] Hover and selection deliberately moved to the interaction layer, so pointer
+      movement never rebuilds the instance buffer
+- [x] Buffer reuse (no per-frame allocation), explicit GL resource disposal
 
 ## Phase 4 — Transactional state & bounding box editor (Modules B, D)
 

@@ -1,5 +1,6 @@
 import type { Rect, Size } from '@/canvas/geometry'
 import type { Camera } from '@/canvas/viewport/camera'
+import type { DocumentPageLayout } from '@/document/pageLayout'
 
 /** Canvas sizing in both CSS and device pixels, recomputed on resize or DPR change. */
 export type CanvasBackingSize = {
@@ -16,7 +17,7 @@ export type RenderFrame = {
   viewportSize: Size
   devicePixelRatio: number
   visibleWorldRect: Rect
-  pageCount: number
+  pageLayout: DocumentPageLayout
   timestampMilliseconds: number
 }
 

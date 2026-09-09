@@ -8,7 +8,7 @@ import {
   selectTileLevelIndex,
 } from '@/canvas/textures/pageTileGrid'
 import { applyWorldTransformToContext } from '@/canvas/viewport/camera'
-import { computePageBounds, getVisiblePageRange } from '@/document/pageLayout'
+import { collectVisiblePageIndexes, getPageBounds } from '@/document/pageLayout'
 
 const WORKSPACE_BACKGROUND_COLOR = '#0b0e13'
 const PAPER_FALLBACK_COLOR = '#f6f4ef'
@@ -57,6 +57,7 @@ export class PageRasterLayer implements RenderLayer {
 
   private backingSize: CanvasBackingSize | null = null
   private drawnTileCount = 0
+  private readonly visiblePageIndexes: number[] = []
 
   constructor(canvas: HTMLCanvasElement, documentSeed: number, onRasterReady: () => void) {
     const context = canvas.getContext('2d', { alpha: false })
@@ -85,11 +86,12 @@ export class PageRasterLayer implements RenderLayer {
     context.fillStyle = WORKSPACE_BACKGROUND_COLOR
     context.fillRect(0, 0, this.backingSize.deviceWidth, this.backingSize.deviceHeight)
 
-    const { firstPageIndex, lastPageIndex } = getVisiblePageRange(
+    const visiblePageIndexes = collectVisiblePageIndexes(
+      frame.pageLayout,
       frame.visibleWorldRect,
-      frame.pageCount,
+      this.visiblePageIndexes,
     )
-    if (firstPageIndex < 0) {
+    if (visiblePageIndexes.length === 0) {
       this.drawnTileCount = 0
       return
     }
@@ -108,8 +110,8 @@ export class PageRasterLayer implements RenderLayer {
 
     let drawnTileCount = 0
 
-    for (let pageIndex = firstPageIndex; pageIndex <= lastPageIndex; pageIndex += 1) {
-      const pageBounds = computePageBounds(pageIndex)
+    for (const pageIndex of visiblePageIndexes) {
+      const pageBounds = getPageBounds(frame.pageLayout, pageIndex)
       const tiles = this.collectTileDrawCommands(pageIndex, pageBounds, frame, tileLevelIndex)
       const isFullyTiled = tiles.requiredCount > 0 && tiles.readyCount === tiles.requiredCount
 
@@ -132,8 +134,8 @@ export class PageRasterLayer implements RenderLayer {
       }
     }
 
-    for (let pageIndex = firstPageIndex; pageIndex <= lastPageIndex; pageIndex += 1) {
-      this.strokePageBorder(computePageBounds(pageIndex), frame)
+    for (const pageIndex of visiblePageIndexes) {
+      this.strokePageBorder(getPageBounds(frame.pageLayout, pageIndex), frame)
     }
 
     this.drawnTileCount = drawnTileCount

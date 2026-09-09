@@ -29,12 +29,21 @@ export const DOCUMENT_PRESETS: Record<DocumentPresetId, DocumentPreset> = {
 
 export type WorkspaceState = {
   activePresetId: DocumentPresetId
+  /**
+   * Viewport culling is on in normal use. Turning it off submits every box in the
+   * document each frame, which is how the renderer's instance throughput is measured
+   * rather than asserted.
+   */
+  isViewportCullingEnabled: boolean
   loadPreset: (presetId: DocumentPresetId) => void
+  setViewportCullingEnabled: (isEnabled: boolean) => void
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   activePresetId: 'sample',
+  isViewportCullingEnabled: true,
   loadPreset: (presetId) => set({ activePresetId: presetId }),
+  setViewportCullingEnabled: (isEnabled) => set({ isViewportCullingEnabled: isEnabled }),
 }))
 
 export function useActiveDocumentPreset(): DocumentPreset {
