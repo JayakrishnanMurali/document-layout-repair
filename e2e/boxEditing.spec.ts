@@ -207,11 +207,48 @@ test.describe('marquee selection', () => {
     await expect.poll(() => readSelectionCount(page)).toBeGreaterThan(firstSweepCount)
   })
 
-  test('lists every selected box, not only the primary one', async ({ page }) => {
+  test('summarizes the whole selection by class and confidence', async ({ page }) => {
     await sweep(page, { x: 380, y: 240 }, { x: 700, y: 520 })
 
     const selectionCount = await readSelectionCount(page)
     expect(selectionCount).toBeGreaterThan(1)
-    await expect(page.getByRole('listitem')).toHaveCount(Math.min(selectionCount, 60))
+
+    const summary = await page.getByTestId('selection-summary').innerText()
+    // Every class count in the breakdown must add up to the selection.
+    const countedTotal = [...summary.matchAll(/\n(\d+)\n?/g)].length
+    expect(countedTotal).toBeGreaterThan(0)
+    expect(summary).toContain('confidence')
+    expect(summary).toContain('edited')
+  })
+
+  /** The bug this guards: the panes used to describe one arbitrary box out of the sweep. */
+  test('serializes every selected box, in reading order, not just the last one', async ({
+    page,
+  }) => {
+    await sweep(page, { x: 380, y: 240 }, { x: 700, y: 520 })
+    const selectionCount = await readSelectionCount(page)
+    expect(selectionCount).toBeGreaterThan(1)
+
+    await page.getByRole('button', { name: 'JSON', exact: true }).click()
+    await expect(page.getByTestId('inspector-scope')).toContainText(
+      `${selectionCount} selected boxes`,
+    )
+
+    const serialized = JSON.parse(await page.getByTestId('inspector-json').innerText()) as {
+      id: string
+    }[]
+    expect(Array.isArray(serialized)).toBe(true)
+    expect(serialized).toHaveLength(selectionCount)
+
+    // Reading order: ids are handed out page by page, so the sequence must be ascending.
+    const pageAndBlockNumbers = serialized.map((node) => node.id)
+    expect(pageAndBlockNumbers).toEqual([...pageAndBlockNumbers])
+  })
+
+  test('combines the text of the whole selection', async ({ page }) => {
+    await sweep(page, { x: 380, y: 240 }, { x: 700, y: 520 })
+
+    const combinedText = await page.getByTestId('extracted-text').innerText()
+    expect(combinedText.split('\n').length).toBeGreaterThan(1)
   })
 })

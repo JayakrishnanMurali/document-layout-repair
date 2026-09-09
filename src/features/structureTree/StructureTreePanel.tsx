@@ -40,39 +40,42 @@ export function StructureTreePanel() {
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
-  const [collapsibleState, setCollapsibleState] = useState(() => ({
+  const [treeState, setTreeState] = useState(() => ({
     layoutDocument,
+    revealedNodeId: NO_LAYOUT_NODE_ID as LayoutNodeId,
     expandedRowKeys: new Set<StructureTreeRowKey>([getPageRowKey(0)]),
   }))
   const [scrollTop, setScrollTop] = useState(0)
   const [containerHeight, setContainerHeight] = useState(0)
 
-  // Loading another document resets what is expanded. Adjusting state during render is
-  // the sanctioned way to react to a changed input without an extra render pass.
-  if (collapsibleState.layoutDocument !== layoutDocument) {
-    setCollapsibleState({
+  // Adjusting state during render is the sanctioned way to react to a changed input
+  // without an extra effect and an extra render pass.
+  if (treeState.layoutDocument !== layoutDocument) {
+    setTreeState({
       layoutDocument,
+      revealedNodeId: NO_LAYOUT_NODE_ID,
       expandedRowKeys: new Set([getPageRowKey(0)]),
+    })
+  } else if (treeState.revealedNodeId !== primarySelectedNodeId) {
+    /**
+     * Canvas → tree, part one: a newly selected node has its ancestors expanded once, so
+     * a click on the canvas always reveals a row instead of hiding inside a collapsed
+     * branch. Expanding once rather than deriving it every render is what lets the
+     * reviewer collapse that branch again afterwards.
+     */
+    const ancestorRowKeys = layoutDocument
+      ? collectAncestorRowKeys(layoutDocument, primarySelectedNodeId)
+      : []
+    setTreeState({
+      ...treeState,
+      revealedNodeId: primarySelectedNodeId,
+      expandedRowKeys: ancestorRowKeys.every((rowKey) => treeState.expandedRowKeys.has(rowKey))
+        ? treeState.expandedRowKeys
+        : new Set([...treeState.expandedRowKeys, ...ancestorRowKeys]),
     })
   }
 
-  /**
-   * Canvas → tree, part one: the ancestors of the selected node are treated as expanded
-   * whether or not the reviewer expanded them, so a click on the canvas always reveals a
-   * row rather than hiding inside a collapsed branch.
-   */
-  const expandedRowKeys = useMemo(() => {
-    const stored = collapsibleState.expandedRowKeys
-    if (!layoutDocument || primarySelectedNodeId === NO_LAYOUT_NODE_ID) {
-      return stored
-    }
-
-    const ancestorRowKeys = collectAncestorRowKeys(layoutDocument, primarySelectedNodeId)
-    if (ancestorRowKeys.every((rowKey) => stored.has(rowKey))) {
-      return stored
-    }
-    return new Set([...stored, ...ancestorRowKeys])
-  }, [collapsibleState.expandedRowKeys, layoutDocument, primarySelectedNodeId])
+  const expandedRowKeys = treeState.expandedRowKeys
 
   const rows = useMemo(
     () => flattenStructureTree(layoutDocument, expandedRowKeys),
@@ -88,6 +91,14 @@ export function StructureTreePanel() {
     rows.forEach((row, rowIndex) => indexes.set(row.key, rowIndex))
     return indexes
   }, [rows])
+
+  // Mirrored into a ref so the scroll effect below can read the current indexes without
+  // taking them as a dependency. Declared first, so it has already run by the time that
+  // effect fires in the same commit.
+  const rowIndexByKeyRef = useRef(rowIndexByKey)
+  useLayoutEffect(() => {
+    rowIndexByKeyRef.current = rowIndexByKey
+  }, [rowIndexByKey])
 
   const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds])
 
@@ -114,14 +125,20 @@ export function StructureTreePanel() {
     resizeObserverRef.current = resizeObserver
   }, [])
 
-  // Canvas → tree, part two: scroll the revealed row into view.
+  /**
+   * Canvas → tree, part two: scroll the revealed row into view.
+   *
+   * Keyed on the selection alone. Depending on the row indexes instead would re-scroll
+   * on every expand and collapse, yanking the reviewer back to a selection they had
+   * deliberately scrolled away from.
+   */
   useLayoutEffect(() => {
     const container = scrollContainerRef.current
     if (!container || containerHeight === 0 || primarySelectedNodeId === NO_LAYOUT_NODE_ID) {
       return
     }
 
-    const rowIndex = rowIndexByKey.get(getNodeRowKey(primarySelectedNodeId))
+    const rowIndex = rowIndexByKeyRef.current.get(getNodeRowKey(primarySelectedNodeId))
     if (rowIndex === undefined) {
       return
     }
@@ -137,10 +154,10 @@ export function StructureTreePanel() {
       top: Math.max(0, rowTop - containerHeight / 2 + ROW_HEIGHT_IN_PIXELS / 2),
       behavior: 'smooth',
     })
-  }, [primarySelectedNodeId, rowIndexByKey, containerHeight])
+  }, [primarySelectedNodeId, containerHeight])
 
   const toggleRow = useCallback((rowKey: StructureTreeRowKey) => {
-    setCollapsibleState((previous) => {
+    setTreeState((previous) => {
       const nextExpandedRowKeys = new Set(previous.expandedRowKeys)
       if (nextExpandedRowKeys.has(rowKey)) {
         nextExpandedRowKeys.delete(rowKey)
