@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LayoutDocumentBuilder } from '@/document/extraction/LayoutDocumentBuilder'
 import { buildPageExtractionPayload } from '@/document/extraction/payloadBuilder'
 import {
+  NODE_FLAG_LOW_CONFIDENCE,
   NODE_FLAG_REMOVED,
   getLayoutNodeClassName,
   getTableCellBounds,
@@ -20,6 +21,7 @@ import {
 import {
   MINIMUM_CELL_SIZE_IN_WORLD_UNITS,
   clampDividerPosition,
+  computeMeshDividerOcclusion,
   findDividerAtWorldPoint,
   getMeshColumnCount,
   getMeshRowCount,
@@ -384,5 +386,128 @@ describe('collectSelectedCellNodeIds', () => {
   it('reports nothing when no table cell is selected', () => {
     const layoutDocument = buildDocument()
     expect(collectSelectedCellNodeIds(layoutDocument, [0])).toBeNull()
+  })
+})
+
+describe('computeMeshDividerOcclusion', () => {
+  it('hides nothing while every cell is on the grid', () => {
+    const layoutDocument = buildDocument()
+    const mesh = findFirstMesh(layoutDocument)
+    const occlusion = computeMeshDividerOcclusion(layoutDocument, mesh)
+
+    for (let dividerIndex = 1; dividerIndex < mesh.columnEdges.length - 1; dividerIndex += 1) {
+      for (let rowIndex = 0; rowIndex < getMeshRowCount(mesh); rowIndex += 1) {
+        expect(occlusion.isColumnSegmentHidden(dividerIndex, rowIndex)).toBe(false)
+      }
+    }
+  })
+
+  /** Otherwise the divider is drawn straight through the merged cell. */
+  it('hides the divider segments a merged cell spans across', () => {
+    const layoutDocument = buildDocument()
+    const editor = new LayoutEditor({ reindexNodes: vi.fn() })
+    editor.setDocument(layoutDocument)
+    const mesh = findFirstMesh(layoutDocument)
+
+    const first = mesh.cells.find((cell) => cell.rowIndex === 1 && cell.columnIndex === 0)!
+    const second = mesh.cells.find((cell) => cell.rowIndex === 1 && cell.columnIndex === 1)!
+    mergeTableCells(editor, [first.nodeId, second.nodeId])
+
+    const occlusion = computeMeshDividerOcclusion(layoutDocument, mesh)
+    expect(occlusion.isColumnSegmentHidden(1, 1)).toBe(true)
+    expect(occlusion.isColumnSegmentHidden(1, 0)).toBe(false)
+    expect(occlusion.isColumnSegmentHidden(1, 2)).toBe(false)
+  })
+
+  /** You can only drag a divider where you can actually see it. */
+  it('makes an occluded divider unreachable by the pointer', () => {
+    const layoutDocument = buildDocument()
+    const editor = new LayoutEditor({ reindexNodes: vi.fn() })
+    editor.setDocument(layoutDocument)
+    const mesh = findFirstMesh(layoutDocument)
+
+    const first = mesh.cells.find((cell) => cell.rowIndex === 1 && cell.columnIndex === 0)!
+    const second = mesh.cells.find((cell) => cell.rowIndex === 1 && cell.columnIndex === 1)!
+    mergeTableCells(editor, [first.nodeId, second.nodeId])
+
+    const occlusion = computeMeshDividerOcclusion(layoutDocument, mesh)
+    const insideMergedCell = {
+      x: mesh.columnEdges[1],
+      y: (mesh.rowEdges[1] + mesh.rowEdges[2]) / 2,
+    }
+    const inAnUntouchedRow = {
+      x: mesh.columnEdges[1],
+      y: (mesh.rowEdges[2] + mesh.rowEdges[3]) / 2,
+    }
+
+    expect(findDividerAtWorldPoint(mesh, insideMergedCell, 6, occlusion)).toBeNull()
+    expect(findDividerAtWorldPoint(mesh, inAnUntouchedRow, 6, occlusion)).toEqual({
+      axis: 'column',
+      dividerIndex: 1,
+    })
+  })
+
+  it('hides row segments under a vertically merged cell', () => {
+    const layoutDocument = buildDocument()
+    const editor = new LayoutEditor({ reindexNodes: vi.fn() })
+    editor.setDocument(layoutDocument)
+    const mesh = findFirstMesh(layoutDocument)
+
+    const first = mesh.cells.find((cell) => cell.rowIndex === 1 && cell.columnIndex === 0)!
+    const second = mesh.cells.find((cell) => cell.rowIndex === 2 && cell.columnIndex === 0)!
+    mergeTableCells(editor, [first.nodeId, second.nodeId])
+
+    const occlusion = computeMeshDividerOcclusion(layoutDocument, mesh)
+    expect(occlusion.isRowSegmentHidden(2, 0)).toBe(true)
+    expect(occlusion.isRowSegmentHidden(2, 1)).toBe(false)
+  })
+})
+
+describe('text after a mesh edit', () => {
+  let layoutDocument: LayoutDocument
+  let editor: LayoutEditor
+  let mesh: TableMesh
+
+  beforeEach(() => {
+    layoutDocument = buildDocument()
+    editor = new LayoutEditor({ reindexNodes: vi.fn() })
+    editor.setDocument(layoutDocument)
+    mesh = findFirstMesh(layoutDocument)
+  })
+
+  it('carries the text of every merged cell into the merged one', () => {
+    const first = mesh.cells.find((cell) => cell.rowIndex === 1 && cell.columnIndex === 0)!
+    const second = mesh.cells.find((cell) => cell.rowIndex === 1 && cell.columnIndex === 1)!
+    const firstText = layoutDocument.texts[first.nodeId]
+    const secondText = layoutDocument.texts[second.nodeId]
+    expect(firstText).toBeTruthy()
+    expect(secondText).toBeTruthy()
+
+    mergeTableCells(editor, [first.nodeId, second.nodeId])
+
+    expect(layoutDocument.texts[first.nodeId]).toBe(`${firstText} ${secondText}`)
+    // The hidden cell keeps its own text, so undoing restores each fragment in place.
+    expect(layoutDocument.texts[second.nodeId]).toBe(secondText)
+
+    editor.undo()
+    expect(layoutDocument.texts[first.nodeId]).toBe(firstText)
+  })
+
+  it('leaves a split cell empty and marks it as unverified', () => {
+    const nodeCountBefore = layoutDocument.geometry.nodeCount
+    const cellNodeId = mesh.cells.find((cell) => cell.columnIndex === 0)!.nodeId
+    const originalText = layoutDocument.texts[cellNodeId]
+
+    splitTableCell(editor, cellNodeId, 'column')
+
+    // The original keeps its text; nothing can know how to divide it.
+    expect(layoutDocument.texts[cellNodeId]).toBe(originalText)
+
+    for (let nodeId = nodeCountBefore; nodeId < layoutDocument.geometry.nodeCount; nodeId += 1) {
+      expect(layoutDocument.texts[nodeId]).toBeNull()
+      // A new empty cell is work for a human, so it reads as low confidence.
+      expect(layoutDocument.geometry.confidences[nodeId]).toBe(0)
+      expect(layoutDocument.geometry.flags[nodeId] & NODE_FLAG_LOW_CONFIDENCE).not.toBe(0)
+    }
   })
 })

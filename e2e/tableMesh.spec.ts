@@ -118,6 +118,53 @@ test.describe('table mesh corrector', () => {
     await expect.poll(() => readBoxCount(page)).toBe(boxCountBefore)
   })
 
+  /**
+   * The bug this guards: hiding a cell was never replayed to the worker, so its spatial
+   * index kept answering hit-tests with cells the merge had swallowed — clicking a merged
+   * cell selected an invisible fragment of it.
+   */
+  test('selects the merged cell, not a cell the merge swallowed', async ({ page }) => {
+    await selectTableCell(page)
+
+    const viewportBox = await page.locator(CANVAS_CONTAINER).boundingBox()
+    await page.keyboard.down('Shift')
+    await page.mouse.move(viewportBox!.x + 312, viewportBox!.y + 190)
+    await page.mouse.down()
+    await page.mouse.move(viewportBox!.x + 700, viewportBox!.y + 232, { steps: 10 })
+    await page.mouse.up()
+    await page.keyboard.up('Shift')
+
+    await expect(page.getByRole('button', { name: 'Merge cells' })).toBeEnabled()
+    await page.getByRole('button', { name: 'Merge cells' }).click()
+    await expect(page.getByTestId('table-mesh-address')).toContainText(/spans [2-9]×|spans \d+×[2-9]/)
+
+    // Derive the merged cell's own rectangle, then click points inside it: every hit
+    // must resolve to the merged cell rather than a fragment it swallowed.
+    const camera = await readCameraPose(page)
+    const [cellX, cellY] = (await page.getByTestId('selection-position').innerText())
+      .split(',')
+      .map((part) => Number.parseFloat(part))
+    const [cellWidth, cellHeight] = (await page.getByTestId('selection-size').innerText())
+      .split('×')
+      .map((part) => Number.parseFloat(part))
+
+    for (const [horizontalFraction, verticalFraction] of [
+      [0.5, 0.5],
+      [0.2, 0.5],
+      [0.8, 0.5],
+    ]) {
+      await page.locator(CANVAS_CONTAINER).click({
+        position: {
+          x: (cellX + cellWidth * horizontalFraction - camera.originX) * camera.scale,
+          y: (cellY + cellHeight * verticalFraction - camera.originY) * camera.scale,
+        },
+      })
+      await expect
+        .poll(() => page.getByTestId('table-mesh-address').innerText())
+        .toMatch(/spans [2-9]×|spans \d+×[2-9]/)
+    }
+  })
+
   test('drags a column divider and recalculates the cells it bounds', async ({ page }) => {
     await selectTableCell(page)
 

@@ -1,7 +1,11 @@
 import type { Point } from '@/canvas/geometry'
 import type { LayoutDocument, TableMesh } from '@/document/layoutTypes'
 import { getPageIndexAtWorldPoint, type DocumentPageLayout } from '@/document/pageLayout'
-import { findDividerAtWorldPoint, type DividerReference } from '@/document/tableMesh'
+import {
+  computeMeshDividerOcclusion,
+  findDividerAtWorldPoint,
+  type DividerReference,
+} from '@/document/tableMesh'
 import type { LayoutEditor } from '@/state/LayoutEditor'
 import { applyDividerDrag } from '@/state/tableMeshCommands'
 import type { PointerGestureContext, PointerGestureHandler } from './pointerGestures'
@@ -81,13 +85,20 @@ export class TableMeshGestureHandler implements PointerGestureHandler {
     )
   }
 
-  onPointerUp(): void {
+  onPointerUp(_event: PointerEvent, context: PointerGestureContext): void {
     if (!this.draggedMesh) {
       return
     }
     this.draggedMesh = null
     this.draggedDivider = null
     this.editor.commitGesture()
+
+    // Re-derive the highlight from where the pointer actually ended up, so it does not
+    // stay lit on a divider the pointer has already left.
+    const hit = this.getIsActive() ? this.findDivider(context) : null
+    this.onHighlightedDividerChanged(
+      hit ? { ...hit.divider, tableNodeId: hit.mesh.tableNodeId } : null,
+    )
   }
 
   onCancel(): void {
@@ -139,7 +150,12 @@ function findMeshDivider(
   toleranceInWorldUnits: number,
 ): { mesh: TableMesh; divider: DividerReference } | null {
   for (const mesh of layoutDocument.tableMeshesByPage[pageIndex] ?? []) {
-    const divider = findDividerAtWorldPoint(mesh, worldPoint, toleranceInWorldUnits)
+    const divider = findDividerAtWorldPoint(
+      mesh,
+      worldPoint,
+      toleranceInWorldUnits,
+      computeMeshDividerOcclusion(layoutDocument, mesh),
+    )
     if (divider) {
       return { mesh, divider }
     }

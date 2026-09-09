@@ -1,7 +1,9 @@
 import type { Rect } from '@/canvas/geometry'
 import { ensureLayoutGeometryCapacity } from '@/document/geometryBuffers'
 import {
+  LOW_CONFIDENCE_THRESHOLD,
   NODE_FLAG_EDITED,
+  NODE_FLAG_LOW_CONFIDENCE,
   NODE_FLAG_REMOVED,
   getTableCellBounds,
   readNodeBounds,
@@ -39,6 +41,7 @@ export type LayoutMutation =
   | { kind: 'setNodeBounds'; nodeId: LayoutNodeId; bounds: Rect }
   | { kind: 'setNodeRecord'; record: LayoutNodeRecord }
   | { kind: 'setNodeClass'; nodeId: LayoutNodeId; classId: number }
+  | { kind: 'setNodeText'; nodeId: LayoutNodeId; text: string | null }
   | { kind: 'setNodeFlags'; nodeId: LayoutNodeId; flags: number }
   | { kind: 'setNodePresence'; nodeId: LayoutNodeId; isPresent: boolean }
   | { kind: 'setReadingOrder'; pageIndex: number; nodeIds: LayoutNodeId[] }
@@ -68,6 +71,8 @@ export function getMutationKey(mutation: LayoutMutation): string {
       return `record:${mutation.record.nodeId}`
     case 'setNodeClass':
       return `class:${mutation.nodeId}`
+    case 'setNodeText':
+      return `text:${mutation.nodeId}`
     case 'setNodeFlags':
       return `flags:${mutation.nodeId}`
     case 'setNodePresence':
@@ -152,7 +157,9 @@ export function applyLayoutMutation(
       geometry.pageIndexes[record.nodeId] = record.pageIndex
       geometry.parentIds[record.nodeId] = record.parentId
       geometry.confidences[record.nodeId] = record.confidence
-      geometry.flags[record.nodeId] = NODE_FLAG_EDITED
+      geometry.flags[record.nodeId] =
+        NODE_FLAG_EDITED |
+        (record.confidence < LOW_CONFIDENCE_THRESHOLD ? NODE_FLAG_LOW_CONFIDENCE : 0)
 
       writeSideTableEntry(layoutDocument.texts, record.nodeId, record.text)
       writeSideTableEntry(layoutDocument.sourceNodeIds, record.nodeId, record.sourceId)
@@ -177,6 +184,17 @@ export function applyLayoutMutation(
         classId: geometry.classIds[mutation.nodeId],
       }
       geometry.classIds[mutation.nodeId] = mutation.classId
+      geometry.flags[mutation.nodeId] |= NODE_FLAG_EDITED
+      return inverse
+    }
+
+    case 'setNodeText': {
+      const inverse: LayoutMutation = {
+        kind: 'setNodeText',
+        nodeId: mutation.nodeId,
+        text: layoutDocument.texts[mutation.nodeId] ?? null,
+      }
+      writeSideTableEntry(layoutDocument.texts, mutation.nodeId, mutation.text)
       geometry.flags[mutation.nodeId] |= NODE_FLAG_EDITED
       return inverse
     }
@@ -257,6 +275,7 @@ export function collectAffectedNodeIds(
     switch (mutation.kind) {
       case 'setNodeBounds':
       case 'setNodeClass':
+      case 'setNodeText':
       case 'setNodeFlags':
       case 'setNodePresence':
         results.add(mutation.nodeId)

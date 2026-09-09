@@ -12,6 +12,18 @@ import type { LayoutNodeRecord } from '@/state/history/layoutMutations'
 
 export type TableMeshAxis = 'column' | 'row'
 
+/**
+ * Which divider segments a merged cell hides.
+ *
+ * A merged cell spans across interior dividers, and drawing those dividers straight
+ * through it is what makes a merge look like it did not happen. Segments are keyed by
+ * divider index and the track they cross.
+ */
+export type MeshDividerOcclusion = {
+  isColumnSegmentHidden: (dividerIndex: number, rowIndex: number) => boolean
+  isRowSegmentHidden: (dividerIndex: number, columnIndex: number) => boolean
+}
+
 /** A divider can never be dragged closer than this to its neighbour. */
 export const MINIMUM_CELL_SIZE_IN_WORLD_UNITS = 14
 
@@ -87,10 +99,28 @@ function getDividerTolerance(
   )
 }
 
+/** Track (row or column) containing a position, or -1 outside the mesh. */
+export function findTrackIndex(edges: readonly number[], position: number): number {
+  for (let trackIndex = 0; trackIndex + 1 < edges.length; trackIndex += 1) {
+    if (position >= edges[trackIndex] && position <= edges[trackIndex + 1]) {
+      return trackIndex
+    }
+  }
+  return -1
+}
+
+/**
+ * The divider under the pointer, if any.
+ *
+ * A divider that a merged cell hides is not grabbable where it is hidden: it can only be
+ * dragged where it is actually drawn, otherwise the middle of a merged cell would grab an
+ * invisible line instead of selecting the cell.
+ */
 export function findDividerAtWorldPoint(
   mesh: TableMesh,
   worldPoint: Point,
   toleranceInWorldUnits: number,
+  occlusion?: MeshDividerOcclusion,
 ): DividerReference | null {
   const tableTop = mesh.rowEdges[0]
   const tableBottom = mesh.rowEdges[mesh.rowEdges.length - 1]
@@ -101,7 +131,11 @@ export function findDividerAtWorldPoint(
   let bestDistance = Number.POSITIVE_INFINITY
 
   if (worldPoint.y >= tableTop - toleranceInWorldUnits && worldPoint.y <= tableBottom + toleranceInWorldUnits) {
+    const rowIndex = findTrackIndex(mesh.rowEdges, worldPoint.y)
     for (const dividerIndex of getInteriorDividerIndexes(mesh, 'column')) {
+      if (rowIndex >= 0 && occlusion?.isColumnSegmentHidden(dividerIndex, rowIndex)) {
+        continue
+      }
       const tolerance = getDividerTolerance(mesh.columnEdges, dividerIndex, toleranceInWorldUnits)
       const distance = Math.abs(mesh.columnEdges[dividerIndex] - worldPoint.x)
       if (distance <= tolerance && distance < bestDistance) {
@@ -112,7 +146,11 @@ export function findDividerAtWorldPoint(
   }
 
   if (worldPoint.x >= tableLeft - toleranceInWorldUnits && worldPoint.x <= tableRight + toleranceInWorldUnits) {
+    const columnIndex = findTrackIndex(mesh.columnEdges, worldPoint.x)
     for (const dividerIndex of getInteriorDividerIndexes(mesh, 'row')) {
+      if (columnIndex >= 0 && occlusion?.isRowSegmentHidden(dividerIndex, columnIndex)) {
+        continue
+      }
       const tolerance = getDividerTolerance(mesh.rowEdges, dividerIndex, toleranceInWorldUnits)
       const distance = Math.abs(mesh.rowEdges[dividerIndex] - worldPoint.y)
       if (distance <= tolerance && distance < bestDistance) {
@@ -384,6 +422,13 @@ export function planDividerInsertion(
   }
 }
 
+/**
+ * A cell created by a split holds no text and nothing has verified it, so it is given no
+ * confidence at all — it shows up in the workspace exactly like any other box the model
+ * was unsure about, which is precisely what it is: work for a human.
+ */
+export const SPLIT_CELL_CONFIDENCE = 0
+
 /** Builds the record for a cell created by a split, sized from the resulting mesh. */
 export function createCellNodeRecord(
   layoutDocument: LayoutDocument,
@@ -402,8 +447,44 @@ export function createCellNodeRecord(
     pageIndex: mesh.pageIndex,
     parentId: mesh.tableNodeId,
     bounds,
-    confidence: 1,
+    confidence: SPLIT_CELL_CONFIDENCE,
     text: null,
     sourceId: `${layoutDocument.sourceNodeIds[mesh.tableNodeId]}-c${cell.rowIndex}-${cell.columnIndex}-split`,
+  }
+}
+
+export function computeMeshDividerOcclusion(
+  layoutDocument: LayoutDocument,
+  mesh: TableMesh,
+): MeshDividerOcclusion {
+  const hiddenColumnSegments = new Set<string>()
+  const hiddenRowSegments = new Set<string>()
+
+  for (const cell of mesh.cells) {
+    if (!isCellPresent(layoutDocument, cell)) {
+      continue
+    }
+
+    const lastRow = cell.rowIndex + cell.rowSpan - 1
+    const lastColumn = cell.columnIndex + cell.columnSpan - 1
+
+    for (let dividerIndex = cell.columnIndex + 1; dividerIndex <= lastColumn; dividerIndex += 1) {
+      for (let rowIndex = cell.rowIndex; rowIndex <= lastRow; rowIndex += 1) {
+        hiddenColumnSegments.add(`${dividerIndex}:${rowIndex}`)
+      }
+    }
+
+    for (let dividerIndex = cell.rowIndex + 1; dividerIndex <= lastRow; dividerIndex += 1) {
+      for (let columnIndex = cell.columnIndex; columnIndex <= lastColumn; columnIndex += 1) {
+        hiddenRowSegments.add(`${dividerIndex}:${columnIndex}`)
+      }
+    }
+  }
+
+  return {
+    isColumnSegmentHidden: (dividerIndex, rowIndex) =>
+      hiddenColumnSegments.has(`${dividerIndex}:${rowIndex}`),
+    isRowSegmentHidden: (dividerIndex, columnIndex) =>
+      hiddenRowSegments.has(`${dividerIndex}:${columnIndex}`),
   }
 }

@@ -125,10 +125,11 @@ function handleHitTest(requestId: number, worldX: number, worldY: number): void 
   })
 }
 
-function handleBoundsUpdate(
+function handleGeometryPatch(
   requestId: number,
   nodeIds: Int32Array,
   nextBounds: Float32Array,
+  nextFlags: Uint8Array,
 ): void {
   if (!spatialIndex || !layoutDocument) {
     post({ kind: 'workerFailed', requestId, reason: 'No document is loaded' })
@@ -158,6 +159,8 @@ function handleBoundsUpdate(
       height: nextBounds[boundsOffset + 3],
     })
 
+    layoutDocument.geometry.flags[nodeId] = nextFlags[entryIndex]
+
     if (isNewNode) {
       spatialIndex.insertNode(layoutDocument, nodeId)
     } else {
@@ -165,7 +168,7 @@ function handleBoundsUpdate(
     }
   }
 
-  post({ kind: 'boundsUpdated', requestId, reindexMilliseconds: performance.now() - startedAt })
+  post({ kind: 'geometryPatched', requestId, reindexMilliseconds: performance.now() - startedAt })
 }
 
 workerScope.onmessage = (event: MessageEvent<ExtractionWorkerRequest>) => {
@@ -197,8 +200,13 @@ workerScope.onmessage = (event: MessageEvent<ExtractionWorkerRequest>) => {
       handleHitTest(message.requestId, message.worldX, message.worldY)
       break
 
-    case 'updateNodeBounds':
-      handleBoundsUpdate(message.requestId, message.nodeIds, message.nextBounds)
+    case 'patchNodeGeometry':
+      handleGeometryPatch(
+        message.requestId,
+        message.nodeIds,
+        message.nextBounds,
+        message.nextFlags,
+      )
       break
 
     case 'reset':

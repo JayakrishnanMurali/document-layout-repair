@@ -66,3 +66,56 @@ test.describe('viewport rendering', () => {
     )
   })
 })
+
+test.describe('page raster seams', () => {
+  /**
+   * The bug this guards: page tiles were composited through a world transform, so
+   * adjacent tiles landed on fractional device boundaries and left hairline gaps. Over a
+   * canvas cleared to the dark workspace colour, those gaps read as a black grid across
+   * the page.
+   *
+   * Zoomed in far enough that the page covers the whole canvas, any pixel still showing
+   * the workspace colour can only be such a gap — printed ink never gets that dark.
+   */
+  test('shows no gaps between page tiles once the page fills the viewport', async ({ page }) => {
+    await page.goto('/')
+    const viewport = page.locator('[aria-label="Document layout canvas"]')
+    await expect(page.locator(CANVAS_SELECTOR).first()).toBeAttached()
+
+    const countWorkspaceColouredPixels = () =>
+      page.evaluate((selector) => {
+        const canvas = document.querySelector<HTMLCanvasElement>(selector)
+        const context = canvas?.getContext('2d')
+        if (!canvas || !context) {
+          throw new Error('Page raster canvas is unavailable')
+        }
+
+        const { data } = context.getImageData(0, 0, canvas.width, canvas.height)
+        let backgroundPixelCount = 0
+        for (let pixelIndex = 0; pixelIndex < data.length; pixelIndex += 4) {
+          // Workspace background is #0b0e13; the darkest ink over paper lands near 47.
+          if (data[pixelIndex] < 24 && data[pixelIndex + 1] < 28 && data[pixelIndex + 2] < 34) {
+            backgroundPixelCount += 1
+          }
+        }
+        return backgroundPixelCount
+      }, `${CANVAS_SELECTOR}:first-of-type`)
+
+    for (const wheelDelta of [-1400, -1200, -900]) {
+      await viewport.hover({ position: { x: 500, y: 400 } })
+      await page.mouse.wheel(0, wheelDelta)
+      // Let every tile for this zoom level arrive before looking for gaps between them.
+      await page.waitForTimeout(2_500)
+
+      const zoomPercentage = Number.parseInt(await page.getByTestId('zoom-readout').innerText(), 10)
+      if (zoomPercentage < 150) {
+        continue
+      }
+      expect(await countWorkspaceColouredPixels()).toBe(0)
+    }
+
+    expect(
+      Number.parseInt(await page.getByTestId('zoom-readout').innerText(), 10),
+    ).toBeGreaterThanOrEqual(150)
+  })
+})

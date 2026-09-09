@@ -29,9 +29,11 @@ export function replayGeometryIntoIndex(
 
   const nodeIdBuffer = new Int32Array(nodeIds.length)
   const boundsBuffer = new Float32Array(nodeIds.length * 4)
+  const flagsBuffer = new Uint8Array(nodeIds.length)
 
   nodeIds.forEach((nodeId, index) => {
     nodeIdBuffer[index] = nodeId
+    flagsBuffer[index] = layoutDocument.geometry.flags[nodeId]
     const sourceOffset = nodeId * 4
     const targetOffset = index * 4
     boundsBuffer[targetOffset] = layoutDocument.geometry.bounds[sourceOffset]
@@ -41,7 +43,7 @@ export function replayGeometryIntoIndex(
   })
 
   void getExtractionWorkerClient()
-    .updateNodeBounds(nodeIdBuffer, boundsBuffer)
+    .patchNodeGeometry(nodeIdBuffer, boundsBuffer, flagsBuffer)
     .catch((error: unknown) => {
       console.warn('Could not replay geometry into the spatial index:', error)
     })

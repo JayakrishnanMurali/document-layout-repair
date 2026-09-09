@@ -83,21 +83,27 @@ export class ExtractionWorkerClient {
   }
 
   /**
-   * Replays a geometry edit into the worker's index. The buffers are copied before
-   * transfer so callers can keep reusing their own scratch arrays.
+   * Replays a committed geometry edit into the worker's index. The buffers are copied
+   * before transfer so callers can keep reusing their own scratch arrays.
    */
-  updateNodeBounds(nodeIds: Int32Array, nextBounds: Float32Array): Promise<number> {
+  patchNodeGeometry(
+    nodeIds: Int32Array,
+    nextBounds: Float32Array,
+    nextFlags: Uint8Array,
+  ): Promise<number> {
     const nodeIdsCopy = nodeIds.slice()
     const boundsCopy = nextBounds.slice()
+    const flagsCopy = nextFlags.slice()
 
     return this.sendRequest<number>(
       (requestId) => ({
-        kind: 'updateNodeBounds',
+        kind: 'patchNodeGeometry',
         requestId,
         nodeIds: nodeIdsCopy,
         nextBounds: boundsCopy,
+        nextFlags: flagsCopy,
       }),
-      [nodeIdsCopy.buffer, boundsCopy.buffer],
+      [nodeIdsCopy.buffer, boundsCopy.buffer, flagsCopy.buffer],
     )
   }
 
@@ -186,7 +192,7 @@ export class ExtractionWorkerClient {
         } satisfies HitTestResult)
         break
 
-      case 'boundsUpdated':
+      case 'geometryPatched':
         this.settle(message.requestId, message.reindexMilliseconds)
         break
 

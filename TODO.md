@@ -128,7 +128,15 @@ handles, snap guides and labels. All three share one camera transform.
 - [x] Divider grab zones capped at a third of their tracks, so thin rows stay clickable
 - [x] Unit tests: divider clamping, split/merge/unmerge plans, and a tiling invariant
       that every present cell covers its grid cell exactly once after any edit
-- [x] Playwright coverage: split by column and row, merge and unmerge, divider drag
+- [x] Playwright coverage: split by column and row, merge and unmerge, divider drag,
+      and that clicking a merged cell selects the merge rather than a swallowed fragment
+- [x] Merging carries the text of every cell it swallows; the hidden cells keep theirs
+      so undo restores each fragment in place
+- [x] A cell created by a split is empty and carries no confidence, so it reads as work
+      for a human rather than as a verified box
+- [x] Divider segments under a merged cell are neither drawn nor grabbable
+- [x] A wash over the table while the mesh tool is active, because the printed rules
+      stay where they were inked — the mesh corrects the model, not the scan
 
 ## Phase 8 — Live streaming ingestion (Module C)
 

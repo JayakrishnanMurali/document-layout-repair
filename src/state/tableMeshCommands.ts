@@ -111,6 +111,13 @@ export function mergeTableCells(
 
   const mutations: LayoutMutation[] = [
     buildMeshMutation(mesh, { columnEdges: mesh.columnEdges, rowEdges: mesh.rowEdges }, plan.cells),
+    // The merged cell has to carry the text of everything it now covers, or the merge
+    // would silently drop content from the extraction.
+    {
+      kind: 'setNodeText',
+      nodeId: plan.anchorNodeId,
+      text: mergeCellText(layoutDocument, plan.anchorNodeId, plan.hiddenNodeIds),
+    },
     ...plan.hiddenNodeIds.map(
       (nodeId): LayoutMutation => ({ kind: 'setNodePresence', nodeId, isPresent: false }),
     ),
@@ -169,4 +176,22 @@ export function collectSelectedCellNodeIds(
   }
 
   return null
+}
+
+/**
+ * Text of a merged cell: the anchor's own text followed by the text of every cell it
+ * swallows, in reading order. The hidden cells keep their own text, so undoing the merge
+ * restores every fragment where it came from.
+ */
+function mergeCellText(
+  layoutDocument: LayoutDocument,
+  anchorNodeId: LayoutNodeId,
+  hiddenNodeIds: readonly LayoutNodeId[],
+): string | null {
+  const fragments = [anchorNodeId, ...hiddenNodeIds]
+    .sort((left, right) => left - right)
+    .map((nodeId) => layoutDocument.texts[nodeId])
+    .filter((text): text is string => Boolean(text))
+
+  return fragments.length > 0 ? fragments.join(' ') : null
 }

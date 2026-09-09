@@ -7,7 +7,6 @@ import {
   getVisibleTileRange,
   selectTileLevelIndex,
 } from '@/canvas/textures/pageTileGrid'
-import { applyWorldTransformToContext } from '@/canvas/viewport/camera'
 import { collectVisiblePageIndexes, getPageBounds } from '@/document/pageLayout'
 
 const WORKSPACE_BACKGROUND_COLOR = '#0b0e13'
@@ -16,12 +15,13 @@ const PAGE_SHADOW_COLOR = 'rgba(0, 0, 0, 0.45)'
 const PAGE_BORDER_COLOR = 'rgba(0, 0, 0, 0.55)'
 const PAGE_SHADOW_OFFSET_IN_WORLD_UNITS = 10
 
+/** Destination rectangle in device pixels, snapped so neighbouring tiles share edges. */
 type TileDrawCommand = {
   bitmap: ImageBitmap | null
-  x: number
-  y: number
-  width: number
-  height: number
+  deviceLeft: number
+  deviceTop: number
+  deviceRight: number
+  deviceBottom: number
 }
 
 type TileCollectionResult = {
@@ -47,6 +47,11 @@ export type PageRasterLayerStatistics = {
  * thumbnail is stretched underneath, so a newly revealed page is never blank and never
  * shows gaps. Once every visible tile has arrived the thumbnail is dropped, because
  * upscaling it would only be overdrawn.
+ *
+ * Everything here is composited in device pixels with snapped edges rather than through a
+ * world transform. Left to the browser, adjacent tiles land on fractional device
+ * boundaries and leave hairline gaps — which, over a canvas cleared to the dark workspace
+ * colour, read as a black grid across the page.
  */
 export class PageRasterLayer implements RenderLayer {
   readonly name = 'pageRaster'
@@ -96,31 +101,68 @@ export class PageRasterLayer implements RenderLayer {
       return
     }
 
-    const neededTexelsPerWorldUnit = frame.camera.scale * frame.devicePixelRatio
+    const devicePixelsPerWorldUnit = frame.camera.scale * frame.devicePixelRatio
     const tileLevelIndex =
-      neededTexelsPerWorldUnit > THUMBNAIL_ONLY_TEXELS_PER_WORLD_UNIT
-        ? selectTileLevelIndex(neededTexelsPerWorldUnit)
+      devicePixelsPerWorldUnit > THUMBNAIL_ONLY_TEXELS_PER_WORLD_UNIT
+        ? selectTileLevelIndex(devicePixelsPerWorldUnit)
         : -1
     if (tileLevelIndex >= 0) {
       this.rasterCache.setActiveTileLevel(tileLevelIndex)
     }
 
-    applyWorldTransformToContext(context, frame.camera, frame.devicePixelRatio)
     context.imageSmoothingEnabled = true
-
     let drawnTileCount = 0
 
     for (const pageIndex of visiblePageIndexes) {
       const pageBounds = getPageBounds(frame.pageLayout, pageIndex)
-      const tiles = this.collectTileDrawCommands(pageIndex, pageBounds, frame, tileLevelIndex)
-      const isFullyTiled = tiles.requiredCount > 0 && tiles.readyCount === tiles.requiredCount
+      const pageDeviceLeft = Math.round(
+        (pageBounds.x - frame.camera.worldX) * devicePixelsPerWorldUnit,
+      )
+      const pageDeviceTop = Math.round(
+        (pageBounds.y - frame.camera.worldY) * devicePixelsPerWorldUnit,
+      )
+      const pageDeviceRight = Math.round(
+        (pageBounds.x + pageBounds.width - frame.camera.worldX) * devicePixelsPerWorldUnit,
+      )
+      const pageDeviceBottom = Math.round(
+        (pageBounds.y + pageBounds.height - frame.camera.worldY) * devicePixelsPerWorldUnit,
+      )
 
-      this.drawPageShadow(pageBounds, frame)
-      if (!isFullyTiled) {
-        // Paper under the tiles is invisible once they all arrive, and filling a
-        // page-sized rect is one of the most expensive operations in the frame.
-        this.drawPaperBase(pageBounds)
-        this.drawThumbnailUnderlay(pageIndex, pageBounds, frame)
+      this.drawPageShadow(
+        pageDeviceLeft,
+        pageDeviceTop,
+        pageDeviceRight,
+        pageDeviceBottom,
+        frame,
+        devicePixelsPerWorldUnit,
+      )
+
+      const tiles = this.collectTileDrawCommands(
+        pageIndex,
+        pageBounds,
+        frame,
+        devicePixelsPerWorldUnit,
+        tileLevelIndex,
+      )
+
+      if (tiles.readyCount < tiles.requiredCount || tiles.requiredCount === 0) {
+        // Paper and the thumbnail are only needed while tiles are still missing. Once the
+        // page is fully tiled they would be overdrawn pixel for pixel, and a page-sized
+        // fill is one of the most expensive things in the frame.
+        context.fillStyle = PAPER_FALLBACK_COLOR
+        context.fillRect(
+          pageDeviceLeft,
+          pageDeviceTop,
+          pageDeviceRight - pageDeviceLeft,
+          pageDeviceBottom - pageDeviceTop,
+        )
+        this.drawThumbnailUnderlay(
+          pageIndex,
+          pageDeviceLeft,
+          pageDeviceTop,
+          pageDeviceRight,
+          pageDeviceBottom,
+        )
       }
 
       context.imageSmoothingQuality = 'high'
@@ -129,17 +171,26 @@ export class PageRasterLayer implements RenderLayer {
         if (!command.bitmap) {
           continue
         }
-        context.drawImage(command.bitmap, command.x, command.y, command.width, command.height)
+        context.drawImage(
+          command.bitmap,
+          command.deviceLeft,
+          command.deviceTop,
+          command.deviceRight - command.deviceLeft,
+          command.deviceBottom - command.deviceTop,
+        )
         drawnTileCount += 1
       }
-    }
 
-    for (const pageIndex of visiblePageIndexes) {
-      this.strokePageBorder(getPageBounds(frame.pageLayout, pageIndex), frame)
+      this.strokePageBorder(
+        pageDeviceLeft,
+        pageDeviceTop,
+        pageDeviceRight,
+        pageDeviceBottom,
+        frame,
+      )
     }
 
     this.drawnTileCount = drawnTileCount
-    context.setTransform(1, 0, 0, 1, 0, 0)
   }
 
   dispose(): void {
@@ -147,7 +198,13 @@ export class PageRasterLayer implements RenderLayer {
     this.tileDrawPool.length = 0
   }
 
-  private drawThumbnailUnderlay(pageIndex: number, pageBounds: Rect, frame: RenderFrame): void {
+  private drawThumbnailUnderlay(
+    pageIndex: number,
+    deviceLeft: number,
+    deviceTop: number,
+    deviceRight: number,
+    deviceBottom: number,
+  ): void {
     const thumbnail = this.rasterCache.acquireThumbnail(pageIndex)
     if (!thumbnail) {
       return
@@ -156,19 +213,29 @@ export class PageRasterLayer implements RenderLayer {
     // Magnifying a thumbnail produces a placeholder, not a final image, so the expensive
     // resampling filter is reserved for the minifying case — where it is what keeps a
     // densely printed page legible instead of aliased.
-    const drawnDeviceWidth = pageBounds.width * frame.camera.scale * frame.devicePixelRatio
-    this.context.imageSmoothingQuality = thumbnail.width >= drawnDeviceWidth ? 'high' : 'low'
-    this.context.drawImage(thumbnail, pageBounds.x, pageBounds.y, pageBounds.width, pageBounds.height)
+    this.context.imageSmoothingQuality =
+      thumbnail.width >= deviceRight - deviceLeft ? 'high' : 'low'
+    this.context.drawImage(
+      thumbnail,
+      deviceLeft,
+      deviceTop,
+      deviceRight - deviceLeft,
+      deviceBottom - deviceTop,
+    )
   }
 
   /**
    * Fills the reusable draw pool with every cached tile covering the visible part of a
    * page. Commands are pooled objects, so compositing a frame allocates nothing.
+   *
+   * Each edge is rounded from its world position, so tile `n`'s right edge and tile
+   * `n + 1`'s left edge round to the same device pixel and no seam can open between them.
    */
   private collectTileDrawCommands(
     pageIndex: number,
     pageBounds: Rect,
     frame: RenderFrame,
+    devicePixelsPerWorldUnit: number,
     tileLevelIndex: number,
   ): TileCollectionResult {
     if (tileLevelIndex < 0) {
@@ -185,6 +252,11 @@ export class PageRasterLayer implements RenderLayer {
       return { readyCount: 0, requiredCount: 0 }
     }
 
+    const toDeviceX = (worldX: number) =>
+      Math.round((pageBounds.x + worldX - frame.camera.worldX) * devicePixelsPerWorldUnit)
+    const toDeviceY = (worldY: number) =>
+      Math.round((pageBounds.y + worldY - frame.camera.worldY) * devicePixelsPerWorldUnit)
+
     let readyCount = 0
     let requiredCount = 0
 
@@ -199,10 +271,10 @@ export class PageRasterLayer implements RenderLayer {
         const tileBounds = getTileBoundsInPage(tileLevelIndex, tileX, tileY)
         const command = this.acquireTileDrawCommand(readyCount)
         command.bitmap = bitmap
-        command.x = pageBounds.x + tileBounds.x
-        command.y = pageBounds.y + tileBounds.y
-        command.width = tileBounds.width
-        command.height = tileBounds.height
+        command.deviceLeft = toDeviceX(tileBounds.x)
+        command.deviceTop = toDeviceY(tileBounds.y)
+        command.deviceRight = toDeviceX(tileBounds.x + tileBounds.width)
+        command.deviceBottom = toDeviceY(tileBounds.y + tileBounds.height)
         readyCount += 1
       }
     }
@@ -215,7 +287,13 @@ export class PageRasterLayer implements RenderLayer {
     if (existing) {
       return existing
     }
-    const command: TileDrawCommand = { bitmap: null, x: 0, y: 0, width: 0, height: 0 }
+    const command: TileDrawCommand = {
+      bitmap: null,
+      deviceLeft: 0,
+      deviceTop: 0,
+      deviceRight: 0,
+      deviceBottom: 0,
+    }
     this.tileDrawPool.push(command)
     return command
   }
@@ -224,29 +302,46 @@ export class PageRasterLayer implements RenderLayer {
    * Only the two strips the page does not cover are ever visible, so drawing those
    * instead of a full page-sized rect saves a multi-megapixel fill every frame.
    */
-  private drawPageShadow(pageBounds: Rect, frame: RenderFrame): void {
+  private drawPageShadow(
+    deviceLeft: number,
+    deviceTop: number,
+    deviceRight: number,
+    deviceBottom: number,
+    frame: RenderFrame,
+    devicePixelsPerWorldUnit: number,
+  ): void {
     const { context } = this
-    const offset = PAGE_SHADOW_OFFSET_IN_WORLD_UNITS / Math.max(frame.camera.scale, 0.25)
-    context.fillStyle = PAGE_SHADOW_COLOR
-    context.fillRect(pageBounds.x + pageBounds.width, pageBounds.y + offset, offset, pageBounds.height)
-    context.fillRect(
-      pageBounds.x + offset,
-      pageBounds.y + pageBounds.height,
-      pageBounds.width,
-      offset,
+    const offset = Math.max(
+      1,
+      Math.round(
+        (PAGE_SHADOW_OFFSET_IN_WORLD_UNITS / Math.max(frame.camera.scale, 0.25)) *
+          devicePixelsPerWorldUnit,
+      ),
     )
+
+    context.fillStyle = PAGE_SHADOW_COLOR
+    context.fillRect(deviceRight, deviceTop + offset, offset, deviceBottom - deviceTop)
+    context.fillRect(deviceLeft + offset, deviceBottom, deviceRight - deviceLeft, offset)
   }
 
-  private drawPaperBase(pageBounds: Rect): void {
-    this.context.fillStyle = PAPER_FALLBACK_COLOR
-    this.context.fillRect(pageBounds.x, pageBounds.y, pageBounds.width, pageBounds.height)
-  }
-
-  private strokePageBorder(pageBounds: Rect, frame: RenderFrame): void {
+  private strokePageBorder(
+    deviceLeft: number,
+    deviceTop: number,
+    deviceRight: number,
+    deviceBottom: number,
+    frame: RenderFrame,
+  ): void {
     const { context } = this
-    context.lineWidth = 1 / (frame.camera.scale * frame.devicePixelRatio)
+    const strokeWidth = Math.max(1, Math.round(frame.devicePixelRatio))
+    context.lineWidth = strokeWidth
     context.strokeStyle = PAGE_BORDER_COLOR
-    context.strokeRect(pageBounds.x, pageBounds.y, pageBounds.width, pageBounds.height)
+    // Half-pixel inset puts a one-pixel stroke on a pixel centre rather than across two.
+    context.strokeRect(
+      deviceLeft + strokeWidth / 2,
+      deviceTop + strokeWidth / 2,
+      deviceRight - deviceLeft - strokeWidth,
+      deviceBottom - deviceTop - strokeWidth,
+    )
   }
 }
 

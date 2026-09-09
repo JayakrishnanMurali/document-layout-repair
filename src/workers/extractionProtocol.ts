@@ -12,12 +12,18 @@ export type ExtractionWorkerRequest =
   | { kind: 'loadDocument'; requestId: number; pageCount: number; documentSeed: number }
   | { kind: 'ingestPage'; requestId: number; payload: PageExtractionPayload }
   | { kind: 'hitTest'; requestId: number; worldX: number; worldY: number }
+  /**
+   * A committed geometry edit, replayed so the worker's spatial index keeps agreeing with
+   * what is on screen. Flags travel with the bounds because hiding a cell — merging a
+   * table — has to stop it answering hit-tests.
+   */
   | {
-      kind: 'updateNodeBounds'
+      kind: 'patchNodeGeometry'
       requestId: number
       nodeIds: Int32Array
       /** `x, y, width, height` per node id, in the same order. */
       nextBounds: Float32Array
+      nextFlags: Uint8Array
     }
   | { kind: 'reset' }
 
@@ -49,7 +55,7 @@ export type ExtractionWorkerResponse =
       candidateNodeIds: LayoutNodeId[]
       queryMilliseconds: number
     }
-  | { kind: 'boundsUpdated'; requestId: number; reindexMilliseconds: number }
+  | { kind: 'geometryPatched'; requestId: number; reindexMilliseconds: number }
   | { kind: 'workerFailed'; requestId: number; reason: string }
 
 /** Transfer list for a `documentReady` response: the geometry buffers move, not copy. */

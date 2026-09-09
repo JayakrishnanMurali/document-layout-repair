@@ -7,13 +7,27 @@ import {
   type TableMesh,
 } from '@/document/layoutTypes'
 import { collectVisiblePageIndexes } from '@/document/pageLayout'
-import { getInteriorDividerIndexes } from '@/document/tableMesh'
+import {
+  computeMeshDividerOcclusion,
+  getInteriorDividerIndexes,
+  getMeshColumnCount,
+  getMeshRowCount,
+  type MeshDividerOcclusion,
+} from '@/document/tableMesh'
 
 const TABLE_OUTLINE_COLOR = 'rgba(245, 158, 11, 0.95)'
 const DIVIDER_COLOR = 'rgba(245, 158, 11, 0.75)'
 const DIVIDER_GRAB_COLOR = 'rgba(253, 224, 71, 0.95)'
 const MERGED_CELL_FILL_COLOR = 'rgba(245, 158, 11, 0.18)'
 const MERGED_CELL_BORDER_COLOR = 'rgba(253, 224, 71, 0.95)'
+/**
+ * A wash of paper colour over the table while the mesh tool is active.
+ *
+ * The scan itself is immutable: dragging a divider corrects the model's grid, not the
+ * printed rules, which stay exactly where they were inked. Muting the page under the
+ * mesh is what makes that legible instead of looking like a rendering fault.
+ */
+const MESH_FOCUS_WASH_COLOR = 'rgba(246, 244, 239, 0.62)'
 
 const OUTLINE_WIDTH_IN_SCREEN_PIXELS = 2
 const DIVIDER_WIDTH_IN_SCREEN_PIXELS = 1.5
@@ -103,9 +117,17 @@ export class TableMeshLayer implements RenderLayer {
           continue
         }
 
+        this.washOutPrintedRules(meshBounds, frame, toDeviceX, toDeviceY)
         this.drawTableOutline(meshBounds, frame, toDeviceX, toDeviceY)
         if (frame.camera.scale >= MINIMUM_MESH_SCALE) {
-          this.drawDividers(mesh, meshBounds, frame, toDeviceX, toDeviceY, highlightedDivider)
+          this.drawDividers(
+            mesh,
+            frame,
+            toDeviceX,
+            toDeviceY,
+            highlightedDivider,
+            computeMeshDividerOcclusion(layoutDocument, mesh),
+          )
           this.drawMergedCells(layoutDocument, mesh, frame, toDeviceX, toDeviceY)
         }
         this.drawnMeshCount += 1
@@ -115,6 +137,22 @@ export class TableMeshLayer implements RenderLayer {
 
   dispose(): void {
     // The canvas element is owned and removed by the render engine.
+  }
+
+  private washOutPrintedRules(
+    meshBounds: Rect,
+    frame: RenderFrame,
+    toDeviceX: (worldX: number) => number,
+    toDeviceY: (worldY: number) => number,
+  ): void {
+    const devicePixelsPerWorldUnit = frame.camera.scale * frame.devicePixelRatio
+    this.context.fillStyle = MESH_FOCUS_WASH_COLOR
+    this.context.fillRect(
+      toDeviceX(meshBounds.x),
+      toDeviceY(meshBounds.y),
+      meshBounds.width * devicePixelsPerWorldUnit,
+      meshBounds.height * devicePixelsPerWorldUnit,
+    )
   }
 
   private drawTableOutline(
@@ -136,17 +174,15 @@ export class TableMeshLayer implements RenderLayer {
 
   private drawDividers(
     mesh: TableMesh,
-    meshBounds: Rect,
     frame: RenderFrame,
     toDeviceX: (worldX: number) => number,
     toDeviceY: (worldY: number) => number,
     highlightedDivider: ReturnType<TableMeshLayer['getHighlightedDivider']>,
+    occlusion: MeshDividerOcclusion,
   ): void {
     const { context } = this
-    const top = toDeviceY(meshBounds.y)
-    const bottom = toDeviceY(meshBounds.y + meshBounds.height)
-    const left = toDeviceX(meshBounds.x)
-    const right = toDeviceX(meshBounds.x + meshBounds.width)
+    const rowCount = getMeshRowCount(mesh)
+    const columnCount = getMeshColumnCount(mesh)
 
     const isHighlighted = (axis: 'column' | 'row', dividerIndex: number) =>
       highlightedDivider !== null &&
@@ -154,34 +190,44 @@ export class TableMeshLayer implements RenderLayer {
       highlightedDivider.axis === axis &&
       highlightedDivider.dividerIndex === dividerIndex
 
-    for (const dividerIndex of getInteriorDividerIndexes(mesh, 'column')) {
-      const highlighted = isHighlighted('column', dividerIndex)
+    const applyDividerStyle = (highlighted: boolean) => {
       context.lineWidth =
         (highlighted ? DIVIDER_GRAB_WIDTH_IN_SCREEN_PIXELS : DIVIDER_WIDTH_IN_SCREEN_PIXELS) *
         frame.devicePixelRatio
       context.strokeStyle = highlighted ? DIVIDER_GRAB_COLOR : DIVIDER_COLOR
+    }
 
+    for (const dividerIndex of getInteriorDividerIndexes(mesh, 'column')) {
+      applyDividerStyle(isHighlighted('column', dividerIndex))
       // The +0.5 keeps a hairline on a pixel centre instead of straddling two.
       const deviceX = Math.round(toDeviceX(mesh.columnEdges[dividerIndex])) + 0.5
+
       context.beginPath()
-      context.moveTo(deviceX, top)
-      context.lineTo(deviceX, bottom)
+      for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+        if (occlusion.isColumnSegmentHidden(dividerIndex, rowIndex)) {
+          continue
+        }
+        context.moveTo(deviceX, toDeviceY(mesh.rowEdges[rowIndex]))
+        context.lineTo(deviceX, toDeviceY(mesh.rowEdges[rowIndex + 1]))
+      }
       context.stroke()
     }
 
     for (const dividerIndex of getInteriorDividerIndexes(mesh, 'row')) {
-      const highlighted = isHighlighted('row', dividerIndex)
-      context.lineWidth =
-        (highlighted ? DIVIDER_GRAB_WIDTH_IN_SCREEN_PIXELS : DIVIDER_WIDTH_IN_SCREEN_PIXELS) *
-        frame.devicePixelRatio
-      context.strokeStyle = highlighted ? DIVIDER_GRAB_COLOR : DIVIDER_COLOR
-
+      applyDividerStyle(isHighlighted('row', dividerIndex))
       const deviceY = Math.round(toDeviceY(mesh.rowEdges[dividerIndex])) + 0.5
+
       context.beginPath()
-      context.moveTo(left, deviceY)
-      context.lineTo(right, deviceY)
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        if (occlusion.isRowSegmentHidden(dividerIndex, columnIndex)) {
+          continue
+        }
+        context.moveTo(toDeviceX(mesh.columnEdges[columnIndex]), deviceY)
+        context.lineTo(toDeviceX(mesh.columnEdges[columnIndex + 1]), deviceY)
+      }
       context.stroke()
     }
+
   }
 
   private drawMergedCells(
