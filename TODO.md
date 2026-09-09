@@ -115,12 +115,20 @@ handles, snap guides and labels. All three share one camera transform.
 
 ## Phase 7 — Table grid mesh corrector (Module B)
 
-- [ ] Table mesh model (row/column dividers derived into cells)
-- [ ] Editable mesh overlay on detected tables
-- [ ] Drag row/column dividers with live cell bbox recalculation
-- [ ] Cell split (horizontal / vertical)
-- [ ] Cell merge across a selected span
-- [ ] All mesh edits as undoable transactions
+- [x] Table mesh model: global dividers plus per-cell spans, with every cell rectangle
+      derived from the dividers rather than stored
+- [x] Editable mesh overlay on detected tables
+- [x] Drag row/column dividers with live cell bbox recalculation
+- [x] Cell split: inserts a divider, creating the cells that appear in every other row
+- [x] Cell merge across the span of the selected cells, reusing the ordinary selection
+- [x] Unmerge, restoring the cells the merge hid
+- [x] All mesh edits as single undoable transactions, ordered so cell rectangles are
+      never derived from a grid they do not belong to
+- [x] Node creation replayed into the worker's spatial index as an insert
+- [x] Divider grab zones capped at a third of their tracks, so thin rows stay clickable
+- [x] Unit tests: divider clamping, split/merge/unmerge plans, and a tiling invariant
+      that every present cell covers its grid cell exactly once after any edit
+- [x] Playwright coverage: split by column and row, merge and unmerge, divider drag
 
 ## Phase 8 — Live streaming ingestion (Module C)
 

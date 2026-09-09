@@ -120,11 +120,12 @@ describe('LayoutTransactionStack', () => {
 
     stack.commit('Move column divider', [
       {
-        kind: 'setTableMeshEdges',
+        kind: 'setTableMesh',
         pageIndex: meshPageIndex,
         tableNodeId: mesh.tableNodeId,
         columnEdges: movedColumnEdges,
         rowEdges: [...mesh.rowEdges],
+        cells: mesh.cells.map((cell) => ({ ...cell })),
       },
     ])
 

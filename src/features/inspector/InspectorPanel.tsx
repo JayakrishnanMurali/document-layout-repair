@@ -10,6 +10,7 @@ import {
 import { useDocumentStore } from '@/state/documentStore'
 import { useEditorStore, usePrimarySelectedNodeId } from '@/state/editorStore'
 import { SelectionInspector } from './SelectionInspector'
+import { TableMeshTools } from './TableMeshTools'
 import styles from './InspectorPanel.module.css'
 
 type InspectorTabId = 'properties' | 'json' | 'markdown'
@@ -118,7 +119,10 @@ export function InspectorPanel() {
 
       <div className={styles.body}>
         {activeTabId === 'properties' ? (
-          <SelectionInspector />
+          <>
+            <TableMeshTools />
+            <SelectionInspector />
+          </>
         ) : (
           <>
             <p className={styles.scopeNote} data-testid="inspector-scope">

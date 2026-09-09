@@ -1,6 +1,7 @@
 import type { Rect } from '@/canvas/geometry'
 import { LayoutDocumentBuilder } from '@/document/extraction/LayoutDocumentBuilder'
 import { buildPageExtractionPayload } from '@/document/extraction/payloadBuilder'
+import { ensureLayoutGeometryCapacity } from '@/document/geometryBuffers'
 import { readNodeBounds, writeNodeBounds, type LayoutDocument } from '@/document/layoutTypes'
 import { generateSyntheticPageContent } from '@/document/synthetic/pageContentGenerator'
 import { LayoutSpatialIndex } from '@/spatial/LayoutSpatialIndex'
@@ -139,15 +140,29 @@ function handleBoundsUpdate(
   for (let entryIndex = 0; entryIndex < nodeIds.length; entryIndex += 1) {
     const nodeId = nodeIds[entryIndex]
     const boundsOffset = entryIndex * 4
+    // A node id past the end is one the main thread just created — splitting a table
+    // cell adds a cell to every row — so it is inserted rather than moved.
+    const isNewNode = nodeId >= layoutDocument.geometry.nodeCount
 
-    readNodeBounds(layoutDocument.geometry, nodeId, previousBoundsScratch)
+    if (isNewNode) {
+      ensureLayoutGeometryCapacity(layoutDocument.geometry, nodeId + 1)
+      layoutDocument.geometry.nodeCount = nodeId + 1
+    } else {
+      readNodeBounds(layoutDocument.geometry, nodeId, previousBoundsScratch)
+    }
+
     writeNodeBounds(layoutDocument.geometry, nodeId, {
       x: nextBounds[boundsOffset],
       y: nextBounds[boundsOffset + 1],
       width: nextBounds[boundsOffset + 2],
       height: nextBounds[boundsOffset + 3],
     })
-    spatialIndex.updateNode(layoutDocument, nodeId, previousBoundsScratch)
+
+    if (isNewNode) {
+      spatialIndex.insertNode(layoutDocument, nodeId)
+    } else {
+      spatialIndex.updateNode(layoutDocument, nodeId, previousBoundsScratch)
+    }
   }
 
   post({ kind: 'boundsUpdated', requestId, reindexMilliseconds: performance.now() - startedAt })

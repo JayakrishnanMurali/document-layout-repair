@@ -4,10 +4,15 @@ import { ViewportInputController } from '@/canvas/input/ViewportInputController'
 import { BoxEditGestureHandler } from '@/canvas/interaction/BoxEditGestureHandler'
 import { MarqueeSelectGestureHandler } from '@/canvas/interaction/MarqueeSelectGestureHandler'
 import { ReadingOrderGestureHandler } from '@/canvas/interaction/ReadingOrderGestureHandler'
+import {
+  TableMeshGestureHandler,
+  type HighlightedDivider,
+} from '@/canvas/interaction/TableMeshGestureHandler'
 import { InteractionLayer } from '@/canvas/layers/InteractionLayer'
 import { OverlayBoxLayer, type OverlayBoxLayerStatistics } from '@/canvas/layers/OverlayBoxLayer'
 import { PageRasterLayer, type PageRasterLayerStatistics } from '@/canvas/layers/PageRasterLayer'
 import { ReadingOrderLayer } from '@/canvas/layers/ReadingOrderLayer'
+import { TableMeshLayer } from '@/canvas/layers/TableMeshLayer'
 import { ViewportRenderEngine } from '@/canvas/ViewportRenderEngine'
 import { clampZoomScale, fitWorldRectInViewport } from '@/canvas/viewport/camera'
 import type { Rect } from '@/canvas/geometry'
@@ -85,6 +90,17 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
     )
     engine.addLayer(readingOrderLayer)
 
+    const isTableMeshToolActive = () => useWorkspaceStore.getState().activeToolId === 'tableMesh'
+
+    let highlightedDivider: HighlightedDivider | null = null
+    const tableMeshLayer = new TableMeshLayer(
+      engine.createLayerCanvas(),
+      () => layoutEditor.getDocument(),
+      isTableMeshToolActive,
+      () => highlightedDivider,
+    )
+    engine.addLayer(tableMeshLayer)
+
     const interactionLayer = new InteractionLayer(
       engine.createLayerCanvas(),
       () => layoutEditor.getDocument(),
@@ -99,6 +115,7 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
         overlayBoxLayer.invalidateDocument()
         engine.markDirty(overlayBoxLayer.name)
         engine.markDirty(readingOrderLayer.name)
+        engine.markDirty(tableMeshLayer.name)
       }
       engine.markDirty(interactionLayer.name)
     })
@@ -112,7 +129,9 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
       }
       if (state.activeToolId !== lastSeenToolId) {
         lastSeenToolId = state.activeToolId
+        highlightedDivider = null
         engine.markDirty(readingOrderLayer.name)
+        engine.markDirty(tableMeshLayer.name)
         engine.markDirty(interactionLayer.name)
       }
     })
@@ -153,6 +172,22 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
           editor: layoutEditor,
           getPageLayout: () => engine.getPageLayout(),
           getIsActive: isReadingOrderToolActive,
+        }),
+        new TableMeshGestureHandler({
+          editor: layoutEditor,
+          getPageLayout: () => engine.getPageLayout(),
+          getIsActive: isTableMeshToolActive,
+          onHighlightedDividerChanged: (divider) => {
+            const hasChanged =
+              divider?.tableNodeId !== highlightedDivider?.tableNodeId ||
+              divider?.axis !== highlightedDivider?.axis ||
+              divider?.dividerIndex !== highlightedDivider?.dividerIndex
+            if (!hasChanged) {
+              return
+            }
+            highlightedDivider = divider
+            engine.markDirty(tableMeshLayer.name)
+          },
         }),
         new BoxEditGestureHandler({
           editor: layoutEditor,

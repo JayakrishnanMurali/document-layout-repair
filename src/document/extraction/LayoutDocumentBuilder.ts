@@ -15,51 +15,12 @@ import {
   type TableCellReference,
   type TableMesh,
 } from '@/document/layoutTypes'
+import {
+  copyLayoutGeometry,
+  createLayoutGeometry,
+  ensureLayoutGeometryCapacity,
+} from '@/document/geometryBuffers'
 import type { PageExtractionPayload } from './extractionPayload'
-
-const INITIAL_NODE_CAPACITY = 2048
-
-type GrowableGeometry = LayoutGeometry & { capacity: number }
-
-function createGeometry(capacity: number): GrowableGeometry {
-  return {
-    bounds: new Float32Array(capacity * 4),
-    classIds: new Uint8Array(capacity),
-    pageIndexes: new Uint16Array(capacity),
-    parentIds: new Int32Array(capacity),
-    confidences: new Float32Array(capacity),
-    flags: new Uint8Array(capacity),
-    nodeCount: 0,
-    capacity,
-  }
-}
-
-function growGeometry(geometry: GrowableGeometry, requiredCapacity: number): void {
-  if (requiredCapacity <= geometry.capacity) {
-    return
-  }
-
-  let nextCapacity = geometry.capacity
-  while (nextCapacity < requiredCapacity) {
-    nextCapacity *= 2
-  }
-
-  const grown = createGeometry(nextCapacity)
-  grown.bounds.set(geometry.bounds)
-  grown.classIds.set(geometry.classIds)
-  grown.pageIndexes.set(geometry.pageIndexes)
-  grown.parentIds.set(geometry.parentIds)
-  grown.confidences.set(geometry.confidences)
-  grown.flags.set(geometry.flags)
-
-  geometry.bounds = grown.bounds
-  geometry.classIds = grown.classIds
-  geometry.pageIndexes = grown.pageIndexes
-  geometry.parentIds = grown.parentIds
-  geometry.confidences = grown.confidences
-  geometry.flags = grown.flags
-  geometry.capacity = nextCapacity
-}
 
 export type PageIngestResult = {
   pageIndex: number
@@ -76,7 +37,7 @@ export type PageIngestResult = {
  * overlaps are ever visited.
  */
 export class LayoutDocumentBuilder {
-  private readonly geometry: GrowableGeometry = createGeometry(INITIAL_NODE_CAPACITY)
+  private readonly geometry: LayoutGeometry = createLayoutGeometry()
   private readonly texts: (string | null)[] = []
   private readonly sourceNodeIds: string[] = []
   private readonly childIdsByNodeId: LayoutNodeId[][] = []
@@ -134,7 +95,7 @@ export class LayoutDocumentBuilder {
 
     const pageBounds = getPageBounds(this.pageLayout, pageIndex)
     const firstNodeId = this.geometry.nodeCount
-    growGeometry(this.geometry, firstNodeId + payload.boxes.length)
+    ensureLayoutGeometryCapacity(this.geometry, firstNodeId + payload.boxes.length)
 
     for (const box of payload.boxes) {
       const nodeId = this.geometry.nodeCount
@@ -232,16 +193,7 @@ export class LayoutDocumentBuilder {
    * bookkeeping of shared ownership, and it happens once per load rather than per frame.
    */
   createGeometrySnapshot(): LayoutGeometry {
-    const { nodeCount } = this.geometry
-    return {
-      bounds: this.geometry.bounds.slice(0, nodeCount * 4),
-      classIds: this.geometry.classIds.slice(0, nodeCount),
-      pageIndexes: this.geometry.pageIndexes.slice(0, nodeCount),
-      parentIds: this.geometry.parentIds.slice(0, nodeCount),
-      confidences: this.geometry.confidences.slice(0, nodeCount),
-      flags: this.geometry.flags.slice(0, nodeCount),
-      nodeCount,
-    }
+    return copyLayoutGeometry(this.geometry)
   }
 
   private buildTableMesh(

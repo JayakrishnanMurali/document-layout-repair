@@ -1,4 +1,9 @@
-import { getLayoutNodeClassName, NO_LAYOUT_NODE_ID } from '@/document/layoutTypes'
+import { useMemo } from 'react'
+import {
+  NODE_FLAG_REMOVED,
+  NO_LAYOUT_NODE_ID,
+  getLayoutNodeClassName,
+} from '@/document/layoutTypes'
 import { useDocumentStore } from '@/state/documentStore'
 import { useEditorStore, usePrimarySelectedNodeId } from '@/state/editorStore'
 import styles from './WorkspaceStatusBar.module.css'
@@ -8,7 +13,8 @@ const NUMBER_FORMATTER = new Intl.NumberFormat('en-US')
 export function WorkspaceStatusBar() {
   const status = useDocumentStore((state) => state.status)
   const pageCount = useDocumentStore((state) => state.pageCount)
-  const nodeCount = useDocumentStore((state) => state.nodeCount)
+  const ingestedNodeCount = useDocumentStore((state) => state.nodeCount)
+  const structureVersion = useEditorStore((state) => state.structureVersion)
   const ingestedPageCount = useDocumentStore((state) => state.ingestedPageCount)
   const timings = useDocumentStore((state) => state.timings)
   const lastHitTestMilliseconds = useDocumentStore((state) => state.lastHitTestMilliseconds)
@@ -17,6 +23,25 @@ export function WorkspaceStatusBar() {
   const selectedNodeCount = useEditorStore((state) => state.selectedNodeIds.length)
   const undoDepth = useEditorStore((state) => state.undoDepth)
   const layoutDocument = useDocumentStore((state) => state.document)
+
+  /**
+   * Counted live rather than taken from the load, because editing changes it: splitting a
+   * cell adds boxes and merging removes them.
+   */
+  const nodeCount = useMemo(() => {
+    if (!layoutDocument) {
+      return ingestedNodeCount
+    }
+    let presentCount = 0
+    for (let nodeId = 0; nodeId < layoutDocument.geometry.nodeCount; nodeId += 1) {
+      if ((layoutDocument.geometry.flags[nodeId] & NODE_FLAG_REMOVED) === 0) {
+        presentCount += 1
+      }
+    }
+    return presentCount
+    // `structureVersion` marks the in-place edits that change this count.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutDocument, ingestedNodeCount, structureVersion])
 
   const selectionLabel = (() => {
     if (selectedNodeId === NO_LAYOUT_NODE_ID || !layoutDocument) {

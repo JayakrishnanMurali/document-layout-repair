@@ -27,13 +27,14 @@ export const DOCUMENT_PRESETS: Record<DocumentPresetId, DocumentPreset> = {
   },
 }
 
-export const WORKSPACE_TOOLS = ['select', 'readingOrder'] as const
+export const WORKSPACE_TOOLS = ['select', 'readingOrder', 'tableMesh'] as const
 
 export type WorkspaceToolId = (typeof WORKSPACE_TOOLS)[number]
 
 export const WORKSPACE_TOOL_LABELS: Record<WorkspaceToolId, string> = {
   select: 'Select & edit',
   readingOrder: 'Reading order',
+  tableMesh: 'Table mesh',
 }
 
 export type WorkspaceState = {

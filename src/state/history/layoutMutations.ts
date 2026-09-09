@@ -1,4 +1,5 @@
 import type { Rect } from '@/canvas/geometry'
+import { ensureLayoutGeometryCapacity } from '@/document/geometryBuffers'
 import {
   NODE_FLAG_EDITED,
   NODE_FLAG_REMOVED,
@@ -19,23 +20,39 @@ import {
  * and a transaction is just the two lists. Geometry stays in its typed arrays and the
  * undo stack stays proportional to what actually changed.
  */
+/**
+ * A complete node, used when an edit creates one — splitting a table column adds a cell
+ * to every row.
+ */
+export type LayoutNodeRecord = {
+  nodeId: LayoutNodeId
+  classId: number
+  pageIndex: number
+  parentId: LayoutNodeId
+  bounds: Rect
+  confidence: number
+  text: string | null
+  sourceId: string
+}
+
 export type LayoutMutation =
   | { kind: 'setNodeBounds'; nodeId: LayoutNodeId; bounds: Rect }
+  | { kind: 'setNodeRecord'; record: LayoutNodeRecord }
   | { kind: 'setNodeClass'; nodeId: LayoutNodeId; classId: number }
   | { kind: 'setNodeFlags'; nodeId: LayoutNodeId; flags: number }
   | { kind: 'setNodePresence'; nodeId: LayoutNodeId; isPresent: boolean }
   | { kind: 'setReadingOrder'; pageIndex: number; nodeIds: LayoutNodeId[] }
+  /**
+   * A table mesh is replaced as one value: dividers and cells always change together
+   * when a cell is split or merged, and applying them separately would leave the cell
+   * rectangles briefly derived from the wrong grid.
+   */
   | {
-      kind: 'setTableMeshEdges'
+      kind: 'setTableMesh'
       pageIndex: number
       tableNodeId: LayoutNodeId
       columnEdges: number[]
       rowEdges: number[]
-    }
-  | {
-      kind: 'setTableMeshCells'
-      pageIndex: number
-      tableNodeId: LayoutNodeId
       cells: TableCellReference[]
     }
 
@@ -47,6 +64,8 @@ export function getMutationKey(mutation: LayoutMutation): string {
   switch (mutation.kind) {
     case 'setNodeBounds':
       return `bounds:${mutation.nodeId}`
+    case 'setNodeRecord':
+      return `record:${mutation.record.nodeId}`
     case 'setNodeClass':
       return `class:${mutation.nodeId}`
     case 'setNodeFlags':
@@ -55,10 +74,8 @@ export function getMutationKey(mutation: LayoutMutation): string {
       return `presence:${mutation.nodeId}`
     case 'setReadingOrder':
       return `readingOrder:${mutation.pageIndex}`
-    case 'setTableMeshEdges':
-      return `tableEdges:${mutation.tableNodeId}`
-    case 'setTableMeshCells':
-      return `tableCells:${mutation.tableNodeId}`
+    case 'setTableMesh':
+      return `tableMesh:${mutation.tableNodeId}`
   }
 }
 
@@ -120,6 +137,39 @@ export function applyLayoutMutation(
       return inverse
     }
 
+    case 'setNodeRecord': {
+      const { record } = mutation
+      const isNewNode = record.nodeId >= geometry.nodeCount
+      const inverse: LayoutMutation = isNewNode
+        ? { kind: 'setNodePresence', nodeId: record.nodeId, isPresent: false }
+        : { kind: 'setNodeRecord', record: readNodeRecord(layoutDocument, record.nodeId) }
+
+      ensureLayoutGeometryCapacity(geometry, record.nodeId + 1)
+      geometry.nodeCount = Math.max(geometry.nodeCount, record.nodeId + 1)
+
+      writeNodeBounds(geometry, record.nodeId, record.bounds)
+      geometry.classIds[record.nodeId] = record.classId
+      geometry.pageIndexes[record.nodeId] = record.pageIndex
+      geometry.parentIds[record.nodeId] = record.parentId
+      geometry.confidences[record.nodeId] = record.confidence
+      geometry.flags[record.nodeId] = NODE_FLAG_EDITED
+
+      writeSideTableEntry(layoutDocument.texts, record.nodeId, record.text)
+      writeSideTableEntry(layoutDocument.sourceNodeIds, record.nodeId, record.sourceId)
+      while (layoutDocument.childIdsByNodeId.length <= record.nodeId) {
+        layoutDocument.childIdsByNodeId.push([])
+      }
+
+      if (record.parentId >= 0) {
+        const siblings = layoutDocument.childIdsByNodeId[record.parentId]
+        if (siblings && !siblings.includes(record.nodeId)) {
+          siblings.push(record.nodeId)
+        }
+      }
+
+      return inverse
+    }
+
     case 'setNodeClass': {
       const inverse: LayoutMutation = {
         kind: 'setNodeClass',
@@ -171,39 +221,27 @@ export function applyLayoutMutation(
       return inverse
     }
 
-    case 'setTableMeshEdges': {
+    case 'setTableMesh': {
       const mesh = findTableMesh(layoutDocument, mutation.pageIndex, mutation.tableNodeId)
       if (!mesh) {
         throw new Error(`No table mesh for node ${mutation.tableNodeId}`)
       }
+
       const inverse: LayoutMutation = {
-        kind: 'setTableMeshEdges',
+        kind: 'setTableMesh',
         pageIndex: mutation.pageIndex,
         tableNodeId: mutation.tableNodeId,
         columnEdges: [...mesh.columnEdges],
         rowEdges: [...mesh.rowEdges],
-      }
-      mesh.columnEdges = [...mutation.columnEdges]
-      mesh.rowEdges = [...mutation.rowEdges]
-      syncTableMeshGeometry(layoutDocument, mesh)
-      geometry.flags[mutation.tableNodeId] |= NODE_FLAG_EDITED
-      return inverse
-    }
-
-    case 'setTableMeshCells': {
-      const mesh = findTableMesh(layoutDocument, mutation.pageIndex, mutation.tableNodeId)
-      if (!mesh) {
-        throw new Error(`No table mesh for node ${mutation.tableNodeId}`)
-      }
-      const inverse: LayoutMutation = {
-        kind: 'setTableMeshCells',
-        pageIndex: mutation.pageIndex,
-        tableNodeId: mutation.tableNodeId,
         cells: mesh.cells.map((cell) => ({ ...cell })),
       }
+
+      mesh.columnEdges = [...mutation.columnEdges]
+      mesh.rowEdges = [...mutation.rowEdges]
       mesh.cells = mutation.cells.map((cell) => ({ ...cell }))
       syncTableMeshGeometry(layoutDocument, mesh)
       geometry.flags[mutation.tableNodeId] |= NODE_FLAG_EDITED
+
       return inverse
     }
   }
@@ -224,11 +262,14 @@ export function collectAffectedNodeIds(
         results.add(mutation.nodeId)
         break
 
+      case 'setNodeRecord':
+        results.add(mutation.record.nodeId)
+        break
+
       case 'setReadingOrder':
         break
 
-      case 'setTableMeshEdges':
-      case 'setTableMeshCells': {
+      case 'setTableMesh': {
         results.add(mutation.tableNodeId)
         const mesh = findTableMesh(layoutDocument, mutation.pageIndex, mutation.tableNodeId)
         for (const cell of mesh?.cells ?? []) {
@@ -240,4 +281,43 @@ export function collectAffectedNodeIds(
   }
 
   return results
+}
+
+function readNodeRecord(
+  layoutDocument: LayoutDocument,
+  nodeId: LayoutNodeId,
+): LayoutNodeRecord {
+  const { geometry } = layoutDocument
+  const boundsOffset = nodeId * 4
+
+  return {
+    nodeId,
+    classId: geometry.classIds[nodeId],
+    pageIndex: geometry.pageIndexes[nodeId],
+    parentId: geometry.parentIds[nodeId],
+    bounds: {
+      x: geometry.bounds[boundsOffset],
+      y: geometry.bounds[boundsOffset + 1],
+      width: geometry.bounds[boundsOffset + 2],
+      height: geometry.bounds[boundsOffset + 3],
+    },
+    confidence: geometry.confidences[nodeId],
+    text: layoutDocument.texts[nodeId] ?? null,
+    sourceId: layoutDocument.sourceNodeIds[nodeId] ?? `node-${nodeId}`,
+  }
+}
+
+/**
+ * Writes into one of the plain-array side tables, filling any gap rather than leaving
+ * holes — a sparse array would read back `undefined` where the types promise a value.
+ */
+function writeSideTableEntry<ValueType>(
+  table: (ValueType | null)[],
+  nodeId: LayoutNodeId,
+  value: ValueType | null,
+): void {
+  while (table.length < nodeId) {
+    table.push(null)
+  }
+  table[nodeId] = value
 }
