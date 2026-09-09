@@ -21,6 +21,12 @@ export type EditorStoreState = {
   undoDepth: number
   nextUndoLabel: string | null
   nextRedoLabel: string | null
+  /**
+   * Bumped when the document's structure may have changed — a committed transaction or a
+   * fresh load. Panels that derive lists from the document watch this instead of the
+   * per-frame geometry, so a drag does not rebuild the tree sixty times a second.
+   */
+  structureVersion: number
 }
 
 export const useEditorStore = create<EditorStoreState>(() => ({
@@ -31,6 +37,7 @@ export const useEditorStore = create<EditorStoreState>(() => ({
   undoDepth: 0,
   nextUndoLabel: null,
   nextRedoLabel: null,
+  structureVersion: 0,
 }))
 
 function mirrorSelection(): void {
@@ -41,13 +48,14 @@ function mirrorSelection(): void {
 }
 
 function mirrorHistory(): void {
-  useEditorStore.setState({
+  useEditorStore.setState((state) => ({
     canUndo: layoutEditor.canUndo,
     canRedo: layoutEditor.canRedo,
     undoDepth: layoutEditor.undoDepth,
     nextUndoLabel: layoutEditor.nextUndoLabel,
     nextRedoLabel: layoutEditor.nextRedoLabel,
-  })
+    structureVersion: state.structureVersion + 1,
+  }))
 }
 
 layoutEditor.subscribe((changeKind) => {

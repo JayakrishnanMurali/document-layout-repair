@@ -89,11 +89,14 @@ handles, snap guides and labels. All three share one camera transform.
 
 ## Phase 5 — Tree view & bi-directional grounding (Module D)
 
-- [ ] Hierarchical tree of pages → blocks → lines / cells
-- [ ] Virtualized tree rendering (windowed, handles 10k nodes)
-- [ ] Canvas selection/hover → tree scroll-into-view + highlight
-- [ ] Tree selection/hover → canvas highlight + camera focus
-- [ ] JSON / Markdown inspector for the selected node
+- [x] Hierarchical tree of pages → blocks → lines / cells
+- [x] Virtualized tree rendering: a 100-page document is 121 rows with ~28 mounted
+- [x] Canvas selection/hover → ancestors revealed, row scrolled into view and highlighted
+- [x] Tree selection/hover → canvas highlight; double-click eases the camera onto the box
+- [x] JSON pane: the selected subtree as the payload it will export, page-local
+- [x] Markdown pane: reading order, tables and key-value pairs rendered as Markdown
+- [x] Unit tests: tree flattening, ancestor reveal, JSON and Markdown serialization
+- [x] Playwright coverage: both grounding directions, virtualization, camera focus
 
 ## Phase 6 — Reading-order graph tool (Module B)
 

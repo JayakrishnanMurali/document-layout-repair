@@ -1,0 +1,127 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-weight: 600;
+}
+
+.headerHint {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.scrollContainer {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.rowSpacer {
+  position: relative;
+  width: 100%;
+}
+
+.rowWindow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.row,
+.rowSelected,
+.rowHovered {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 22px;
+  padding: 0 10px 0 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.row:hover,
+.rowHovered {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.rowSelected {
+  background: var(--accent-dim);
+  color: var(--accent-strong);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.disclosure {
+  flex: 0 0 auto;
+  width: 14px;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: center;
+}
+
+.classSwatch {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.rowLabel {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.pageLabel {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.rowText {
+  flex: 1 1 auto;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pageMeta {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.lowConfidenceDot {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.emptyState {
+  padding: 16px 12px;
+  color: var(--text-muted);
+}

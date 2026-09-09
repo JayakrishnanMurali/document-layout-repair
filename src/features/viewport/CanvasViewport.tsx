@@ -7,11 +7,13 @@ import { InteractionLayer } from '@/canvas/layers/InteractionLayer'
 import { OverlayBoxLayer, type OverlayBoxLayerStatistics } from '@/canvas/layers/OverlayBoxLayer'
 import { PageRasterLayer, type PageRasterLayerStatistics } from '@/canvas/layers/PageRasterLayer'
 import { ViewportRenderEngine } from '@/canvas/ViewportRenderEngine'
-import { fitWorldRectInViewport } from '@/canvas/viewport/camera'
+import { clampZoomScale, fitWorldRectInViewport } from '@/canvas/viewport/camera'
+import type { Rect } from '@/canvas/geometry'
 import { NO_LAYOUT_NODE_ID } from '@/document/layoutTypes'
 import { createDocumentPageLayout, getDocumentBounds, getPageBounds } from '@/document/pageLayout'
 import { useDocumentStore } from '@/state/documentStore'
 import { layoutEditor } from '@/state/editorStore'
+import { registerViewportCommands } from '@/state/viewportCommands'
 import { useWorkspaceStore } from '@/state/workspaceStore'
 import { ViewportStatisticsOverlay } from './ViewportStatisticsOverlay'
 import styles from './CanvasViewport.module.css'
@@ -22,6 +24,9 @@ export type CanvasViewportProps = {
 }
 
 const LAYER_STATISTICS_INTERVAL_MILLISECONDS = 250
+/** Focusing a small box should not slam the viewport to 500%. */
+const MAXIMUM_FOCUS_SCALE = 2
+const FOCUS_PADDING_FRACTION = 0.3
 
 const EMPTY_FRAME_STATISTICS: FrameStatisticsSnapshot = {
   framesPerSecond: 0,
@@ -146,6 +151,27 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
       },
     })
 
+    /**
+     * Eases the camera until a world rectangle is comfortably in view. Used by the
+     * structure tree to ground a row on the page without teleporting the reviewer.
+     */
+    const focusWorldRect = (worldRect: Rect) => {
+      const viewportSize = engine.getViewportSize()
+      if (viewportSize.width === 0 || viewportSize.height === 0) {
+        return
+      }
+
+      const fitted = fitWorldRectInViewport(worldRect, viewportSize, FOCUS_PADDING_FRACTION)
+      const targetScale = clampZoomScale(Math.min(fitted.scale, MAXIMUM_FOCUS_SCALE))
+
+      engine.animateCameraTo({
+        worldX: worldRect.x + worldRect.width / 2 - viewportSize.width / (2 * targetScale),
+        worldY: worldRect.y + worldRect.height / 2 - viewportSize.height / (2 * targetScale),
+        scale: targetScale,
+      })
+    }
+    registerViewportCommands({ focusWorldRect })
+
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       const isUndoRedoChord = event.metaKey || event.ctrlKey
       if (isUndoRedoChord && event.key.toLowerCase() === 'z') {
@@ -179,6 +205,7 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
     return () => {
       window.clearInterval(layerStatisticsInterval)
       window.removeEventListener('keydown', handleWindowKeyDown)
+      registerViewportCommands(null)
       unsubscribeFromEditor()
       unsubscribeFromWorkspace()
       inputController.dispose()

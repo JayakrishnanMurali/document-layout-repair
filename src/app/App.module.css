@@ -21,7 +21,7 @@
 
 .body {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr 400px;
   min-height: 0;
 }
 
@@ -32,10 +32,17 @@
 }
 
 .sidePanel {
+  display: flex;
+  flex-direction: column;
   border-left: 1px solid var(--border-subtle);
   background: var(--surface-panel);
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
+}
+
+.sidePanel > :first-child {
+  flex: 1 1 56%;
 }
 
 

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { CanvasViewport } from '@/features/viewport/CanvasViewport'
-import { SelectionInspector } from '@/features/inspector/SelectionInspector'
+import { InspectorPanel } from '@/features/inspector/InspectorPanel'
+import { StructureTreePanel } from '@/features/structureTree/StructureTreePanel'
 import { WorkspaceStatusBar } from '@/features/workspace/WorkspaceStatusBar'
 import { useDocumentStore } from '@/state/documentStore'
 import { layoutEditor, useEditorStore } from '@/state/editorStore'
@@ -93,7 +94,8 @@ export function App() {
           />
         </main>
         <aside className={styles.sidePanel}>
-          <SelectionInspector />
+          <StructureTreePanel />
+          <InspectorPanel />
         </aside>
       </div>
 

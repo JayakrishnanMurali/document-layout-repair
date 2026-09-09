@@ -13,6 +13,21 @@ import {
 } from '@/canvas/viewport/camera'
 
 const STATISTICS_INTERVAL_MILLISECONDS = 250
+const DEFAULT_CAMERA_ANIMATION_MILLISECONDS = 340
+
+type CameraAnimation = {
+  from: Camera
+  to: Camera
+  startedAtMilliseconds: number
+  durationMilliseconds: number
+}
+
+/** Ease-in-out cubic: settles without overshooting, which matters for a document view. */
+function easeInOutCubic(progress: number): number {
+  return progress < 0.5
+    ? 4 * progress * progress * progress
+    : 1 - Math.pow(-2 * progress + 2, 3) / 2
+}
 
 export type ViewportRenderEngineOptions = {
   container: HTMLElement
@@ -55,6 +70,7 @@ export class ViewportRenderEngine {
   private viewportSize: Size = { width: 0, height: 0 }
   private devicePixelRatio = 1
   private pageLayout: DocumentPageLayout
+  private cameraAnimation: CameraAnimation | null = null
   private isDisposed = false
 
   constructor(options: ViewportRenderEngineOptions) {
@@ -106,6 +122,26 @@ export class ViewportRenderEngine {
   }
 
   setCamera(camera: Camera): void {
+    // Any explicit camera move is the user taking over; drop an animation in flight.
+    this.cameraAnimation = null
+    this.applyCamera(camera)
+  }
+
+  /** Eases the camera to a target pose. Cancelled by any direct camera change. */
+  animateCameraTo(
+    target: Camera,
+    durationMilliseconds = DEFAULT_CAMERA_ANIMATION_MILLISECONDS,
+  ): void {
+    this.cameraAnimation = {
+      from: { ...this.camera },
+      to: { ...target },
+      startedAtMilliseconds: performance.now(),
+      durationMilliseconds,
+    }
+    this.scheduler.requestFrame()
+  }
+
+  private applyCamera(camera: Camera): void {
     if (
       camera.worldX === this.camera.worldX &&
       camera.worldY === this.camera.worldY &&
@@ -239,6 +275,8 @@ export class ViewportRenderEngine {
       this.measureViewport()
     }
 
+    this.advanceCameraAnimation(timestampMilliseconds)
+
     const frameStartedAt = performance.now()
     const { frame } = this
     frame.camera = this.camera
@@ -259,6 +297,31 @@ export class ViewportRenderEngine {
     this.dirtyLayerNames.clear()
 
     this.frameStatistics.recordFrame(performance.now() - frameStartedAt, timestampMilliseconds)
+  }
+
+  private advanceCameraAnimation(timestampMilliseconds: number): void {
+    const animation = this.cameraAnimation
+    if (!animation) {
+      return
+    }
+
+    const elapsed = timestampMilliseconds - animation.startedAtMilliseconds
+    const progress = Math.min(1, Math.max(0, elapsed / animation.durationMilliseconds))
+    const eased = easeInOutCubic(progress)
+
+    // Scale interpolates geometrically, so a zoom feels linear rather than accelerating.
+    this.applyCamera({
+      worldX: animation.from.worldX + (animation.to.worldX - animation.from.worldX) * eased,
+      worldY: animation.from.worldY + (animation.to.worldY - animation.from.worldY) * eased,
+      scale:
+        animation.from.scale * Math.pow(animation.to.scale / animation.from.scale, eased),
+    })
+
+    if (progress >= 1) {
+      this.cameraAnimation = null
+    } else {
+      this.scheduler.requestFrame()
+    }
   }
 
   private readonly emitStatistics = (): void => {
