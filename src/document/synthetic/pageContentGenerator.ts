@@ -1,39 +1,79 @@
 import type { Rect } from '@/canvas/geometry'
 import { getPageContentBounds } from '@/document/pageLayout'
+import {
+  estimateTextWidth,
+  makeDocumentTitle,
+  makeFieldLabel,
+  makeFieldValue,
+  makeHeading,
+  makeTableCellText,
+  makeTableColumnLabel,
+  pickBodyWord,
+  pickTableColumnKinds,
+  type TableColumnKind,
+} from './documentVocabulary'
 import { createRandomSource, derivePageSeed, type RandomSource } from './randomSource'
 
 /**
  * Deterministic synthetic page content, in **page-local** coordinates (origin at the
  * page's top-left corner). This is the single source of truth for both the rasterized
  * page texture and the extraction payload, so every bounding box lands exactly on the
- * ink it describes.
+ * ink it describes and every tree-view label quotes the text actually printed.
  *
  * `items` is already in reading order: column by column, top to bottom.
  */
 
 export const COLUMN_GAP_IN_WORLD_UNITS = 44
-export const WORD_GAP_IN_WORLD_UNITS = 9
+export const TABLE_CELL_PADDING_IN_WORLD_UNITS = 12
 
-const TEXT_METRICS = {
-  title: { lineHeight: 62, glyphHeight: 40, minimumWordWidth: 60, maximumWordWidth: 220 },
-  heading: { lineHeight: 46, glyphHeight: 27, minimumWordWidth: 44, maximumWordWidth: 170 },
-  paragraph: { lineHeight: 34, glyphHeight: 20, minimumWordWidth: 30, maximumWordWidth: 140 },
-  caption: { lineHeight: 28, glyphHeight: 16, minimumWordWidth: 26, maximumWordWidth: 110 },
-} as const
+export type SyntheticTextStyleName = 'title' | 'heading' | 'paragraph' | 'caption'
 
-export type SyntheticTextBlockKind = keyof typeof TEXT_METRICS
+type TextStyle = {
+  fontSizeInWorldUnits: number
+  lineHeightInWorldUnits: number
+  isBold: boolean
+}
+
+export const TEXT_STYLES: Record<SyntheticTextStyleName, TextStyle> = {
+  title: { fontSizeInWorldUnits: 40, lineHeightInWorldUnits: 58, isBold: true },
+  heading: { fontSizeInWorldUnits: 26, lineHeightInWorldUnits: 42, isBold: true },
+  paragraph: { fontSizeInWorldUnits: 21, lineHeightInWorldUnits: 32, isBold: false },
+  caption: { fontSizeInWorldUnits: 17, lineHeightInWorldUnits: 26, isBold: false },
+}
+
+export const KEY_VALUE_FONT_SIZE_IN_WORLD_UNITS = 20
+export const TABLE_FONT_SIZE_IN_WORLD_UNITS = 18
+
+/** Ratio of the glyph box height to the font size, and of the baseline within it. */
+const GLYPH_BOX_HEIGHT_RATIO = 1.04
+const BASELINE_RATIO = 0.82
+
+export function getGlyphBoxHeight(fontSizeInWorldUnits: number): number {
+  return fontSizeInWorldUnits * GLYPH_BOX_HEIGHT_RATIO
+}
+
+export function getBaselineOffset(fontSizeInWorldUnits: number): number {
+  return fontSizeInWorldUnits * BASELINE_RATIO
+}
+
+export type SyntheticWord = {
+  text: string
+  /** Page-local x of the word's left edge. */
+  x: number
+  width: number
+}
 
 export type SyntheticTextLine = {
   bounds: Rect
-  /** Word widths in world units, laid out left to right with `WORD_GAP_IN_WORLD_UNITS`. */
-  wordWidths: number[]
-  glyphHeight: number
+  words: SyntheticWord[]
+  fontSizeInWorldUnits: number
+  isBold: boolean
 }
 
 export type SyntheticPageItem =
   | {
       kind: 'text'
-      blockKind: SyntheticTextBlockKind
+      styleName: SyntheticTextStyleName
       bounds: Rect
       columnIndex: number
       lines: SyntheticTextLine[]
@@ -47,8 +87,9 @@ export type SyntheticPageItem =
       /** Page-local absolute divider positions; length is rowCount + 1. */
       rowEdges: number[]
       headerRowCount: number
-      /** Row-major fill fraction per cell, used to draw plausible cell text. */
-      cellTextFractions: number[]
+      columnKinds: TableColumnKind[]
+      /** Row-major, `rowCount * columnCount` entries. */
+      cellTexts: string[]
     }
   | {
       kind: 'keyValue'
@@ -56,8 +97,8 @@ export type SyntheticPageItem =
       columnIndex: number
       keyBounds: Rect
       valueBounds: Rect
-      keyWordWidths: number[]
-      valueWordWidths: number[]
+      keyText: string
+      valueText: string
     }
   | {
       kind: 'figure'
@@ -82,123 +123,121 @@ type ColumnCursor = {
   nextY: number
 }
 
-function generateWordWidths(
-  random: RandomSource,
-  availableWidth: number,
-  fillFraction: number,
-  minimumWordWidth: number,
-  maximumWordWidth: number,
-): number[] {
-  const targetWidth = availableWidth * fillFraction
-  const wordWidths: number[] = []
-  let usedWidth = 0
-
-  while (usedWidth < targetWidth) {
-    const remaining = targetWidth - usedWidth
-    if (remaining < minimumWordWidth) {
-      break
-    }
-    const wordWidth = Math.min(
-      random.nextInRange(minimumWordWidth, maximumWordWidth),
-      remaining,
-    )
-    wordWidths.push(wordWidth)
-    usedWidth += wordWidth + WORD_GAP_IN_WORLD_UNITS
-  }
-
-  if (wordWidths.length === 0) {
-    wordWidths.push(Math.min(minimumWordWidth, availableWidth))
-  }
-
-  return wordWidths
-}
-
-function measureLineWidth(wordWidths: number[]): number {
-  let width = 0
-  for (const wordWidth of wordWidths) {
-    width += wordWidth + WORD_GAP_IN_WORLD_UNITS
-  }
-  return Math.max(0, width - WORD_GAP_IN_WORLD_UNITS)
-}
-
-function generateTextLine(
+function layOutWords(
   random: RandomSource,
   originX: number,
-  originY: number,
   availableWidth: number,
+  fontSizeInWorldUnits: number,
   fillFraction: number,
-  blockKind: SyntheticTextBlockKind,
-): SyntheticTextLine {
-  const metrics = TEXT_METRICS[blockKind]
-  const wordWidths = generateWordWidths(
-    random,
-    availableWidth,
-    fillFraction,
-    metrics.minimumWordWidth,
-    metrics.maximumWordWidth,
-  )
+): SyntheticWord[] {
+  const spaceWidth = estimateTextWidth(' ', fontSizeInWorldUnits)
+  const targetWidth = availableWidth * fillFraction
+  const words: SyntheticWord[] = []
+  let cursorX = originX
 
-  return {
-    bounds: {
-      x: originX,
-      y: originY,
-      width: measureLineWidth(wordWidths),
-      height: metrics.glyphHeight,
-    },
-    wordWidths,
-    glyphHeight: metrics.glyphHeight,
+  for (;;) {
+    const text = pickBodyWord(random)
+    const width = estimateTextWidth(text, fontSizeInWorldUnits)
+    if (cursorX - originX + width > targetWidth && words.length > 0) {
+      break
+    }
+    words.push({ text, x: cursorX, width })
+    cursorX += width + spaceWidth
   }
+
+  return words
+}
+
+function measureLineWidth(words: SyntheticWord[], originX: number): number {
+  const lastWord = words[words.length - 1]
+  return lastWord ? lastWord.x + lastWord.width - originX : 0
 }
 
 function createTextItem(
   random: RandomSource,
   cursor: ColumnCursor,
-  blockKind: SyntheticTextBlockKind,
+  styleName: SyntheticTextStyleName,
   lineCount: number,
+  headingText?: string,
 ): SyntheticPageItem {
-  const metrics = TEXT_METRICS[blockKind]
+  const style = TEXT_STYLES[styleName]
+  const glyphBoxHeight = getGlyphBoxHeight(style.fontSizeInWorldUnits)
   const lines: SyntheticTextLine[] = []
 
   for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
-    const isLastLine = lineIndex === lineCount - 1
-    const fillFraction = isLastLine ? random.nextInRange(0.34, 0.86) : random.nextInRange(0.95, 1)
-    lines.push(
-      generateTextLine(
+    const lineY = cursor.nextY + lineIndex * style.lineHeightInWorldUnits
+    let words: SyntheticWord[]
+
+    if (headingText !== undefined && lineIndex === 0) {
+      words = layOutFixedText(headingText, cursor.bounds.x, style.fontSizeInWorldUnits)
+    } else {
+      const isLastLine = lineIndex === lineCount - 1
+      words = layOutWords(
         random,
         cursor.bounds.x,
-        cursor.nextY + lineIndex * metrics.lineHeight,
         cursor.bounds.width,
-        fillFraction,
-        blockKind,
-      ),
-    )
+        style.fontSizeInWorldUnits,
+        isLastLine ? random.nextInRange(0.34, 0.86) : 1,
+      )
+    }
+
+    lines.push({
+      bounds: {
+        x: cursor.bounds.x,
+        y: lineY,
+        width: measureLineWidth(words, cursor.bounds.x),
+        height: glyphBoxHeight,
+      },
+      words,
+      fontSizeInWorldUnits: style.fontSizeInWorldUnits,
+      isBold: style.isBold,
+    })
   }
 
   const widestLineWidth = lines.reduce((widest, line) => Math.max(widest, line.bounds.width), 0)
 
   return {
     kind: 'text',
-    blockKind,
+    styleName,
     bounds: {
       x: cursor.bounds.x,
       y: cursor.nextY,
       width: widestLineWidth,
-      height: (lineCount - 1) * metrics.lineHeight + metrics.glyphHeight,
+      height: (lineCount - 1) * style.lineHeightInWorldUnits + glyphBoxHeight,
     },
     columnIndex: cursor.columnIndex,
     lines,
   }
 }
 
+function layOutFixedText(
+  text: string,
+  originX: number,
+  fontSizeInWorldUnits: number,
+): SyntheticWord[] {
+  const spaceWidth = estimateTextWidth(' ', fontSizeInWorldUnits)
+  const words: SyntheticWord[] = []
+  let cursorX = originX
+
+  for (const token of text.split(' ')) {
+    const width = estimateTextWidth(token, fontSizeInWorldUnits)
+    words.push({ text: token, x: cursorX, width })
+    cursorX += width + spaceWidth
+  }
+
+  return words
+}
+
 function createTableItem(random: RandomSource, cursor: ColumnCursor): SyntheticPageItem {
   const columnCount = random.nextInteger(3, 7)
   const rowCount = random.nextInteger(4, 10)
   const rowHeight = random.nextInRange(38, 46)
+  const columnKinds = pickTableColumnKinds(random, columnCount)
 
   const columnWeights: number[] = []
   let totalWeight = 0
   for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
-    const weight = columnIndex === 0 ? random.nextInRange(1.4, 2.2) : random.nextInRange(0.7, 1.3)
+    const weight = columnIndex === 0 ? random.nextInRange(1.5, 2.3) : random.nextInRange(0.75, 1.3)
     columnWeights.push(weight)
     totalWeight += weight
   }
@@ -215,9 +254,16 @@ function createTableItem(random: RandomSource, cursor: ColumnCursor): SyntheticP
     rowEdges.push(cursor.nextY + rowIndex * rowHeight)
   }
 
-  const cellTextFractions: number[] = []
-  for (let cellIndex = 0; cellIndex < rowCount * columnCount; cellIndex += 1) {
-    cellTextFractions.push(random.nextInRange(0.35, 0.88))
+  const headerRowCount = 1
+  const cellTexts: string[] = []
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+      cellTexts.push(
+        rowIndex < headerRowCount
+          ? makeTableColumnLabel(random)
+          : makeTableCellText(random, columnKinds[columnIndex] ?? 'text'),
+      )
+    }
   }
 
   return {
@@ -231,37 +277,33 @@ function createTableItem(random: RandomSource, cursor: ColumnCursor): SyntheticP
     columnIndex: cursor.columnIndex,
     columnEdges,
     rowEdges,
-    headerRowCount: 1,
-    cellTextFractions,
+    headerRowCount,
+    columnKinds,
+    cellTexts,
   }
 }
 
 function createKeyValueItem(random: RandomSource, cursor: ColumnCursor): SyntheticPageItem {
-  const metrics = TEXT_METRICS.paragraph
-  const keyWidth = cursor.bounds.width * random.nextInRange(0.26, 0.38)
-  const valueX = cursor.bounds.x + keyWidth + 24
-  const valueWidth = cursor.bounds.x + cursor.bounds.width - valueX
+  const fontSize = KEY_VALUE_FONT_SIZE_IN_WORLD_UNITS
+  const glyphBoxHeight = getGlyphBoxHeight(fontSize)
+  const keyText = makeFieldLabel(random)
+  const valueText = makeFieldValue(random, keyText)
 
-  const keyWordWidths = generateWordWidths(random, keyWidth, random.nextInRange(0.6, 0.95), 32, 96)
-  const valueWordWidths = generateWordWidths(
-    random,
-    valueWidth,
-    random.nextInRange(0.45, 0.92),
-    32,
-    120,
-  )
+  const keyColumnWidth = Math.max(cursor.bounds.width * 0.36, 180)
+  const valueX = cursor.bounds.x + keyColumnWidth
+  const availableValueWidth = cursor.bounds.x + cursor.bounds.width - valueX
 
   const keyBounds: Rect = {
     x: cursor.bounds.x,
     y: cursor.nextY,
-    width: measureLineWidth(keyWordWidths),
-    height: metrics.glyphHeight,
+    width: Math.min(estimateTextWidth(keyText, fontSize), keyColumnWidth - 16),
+    height: glyphBoxHeight,
   }
   const valueBounds: Rect = {
     x: valueX,
     y: cursor.nextY,
-    width: measureLineWidth(valueWordWidths),
-    height: metrics.glyphHeight,
+    width: Math.min(estimateTextWidth(valueText, fontSize), availableValueWidth),
+    height: glyphBoxHeight,
   }
 
   return {
@@ -270,13 +312,13 @@ function createKeyValueItem(random: RandomSource, cursor: ColumnCursor): Synthet
       x: keyBounds.x,
       y: cursor.nextY,
       width: valueBounds.x + valueBounds.width - keyBounds.x,
-      height: metrics.glyphHeight,
+      height: glyphBoxHeight,
     },
     columnIndex: cursor.columnIndex,
     keyBounds,
     valueBounds,
-    keyWordWidths,
-    valueWordWidths,
+    keyText,
+    valueText,
   }
 }
 
@@ -287,14 +329,15 @@ function createFigureItem(random: RandomSource, cursor: ColumnCursor): Synthetic
       x: cursor.bounds.x,
       y: cursor.nextY,
       width: cursor.bounds.width,
-      height: random.nextInRange(210, 380),
+      height: random.nextInRange(210, 360),
     },
     columnIndex: cursor.columnIndex,
-    figureSeed: random.nextInteger(0, 0xffff),
+    figureSeed: random.nextInteger(1, 0xffff),
   }
 }
 
 const BLOCK_SPACING_IN_WORLD_UNITS = 26
+const KEY_VALUE_ROW_SPACING_IN_WORLD_UNITS = 10
 
 export function generateSyntheticPageContent(
   pageIndex: number,
@@ -309,11 +352,7 @@ export function generateSyntheticPageContent(
   if (layoutKind === 'two-column') {
     const columnWidth = (contentBounds.width - COLUMN_GAP_IN_WORLD_UNITS) / 2
     columnCursors.push(
-      {
-        columnIndex: 0,
-        bounds: { ...contentBounds, width: columnWidth },
-        nextY: contentBounds.y,
-      },
+      { columnIndex: 0, bounds: { ...contentBounds, width: columnWidth }, nextY: contentBounds.y },
       {
         columnIndex: 1,
         bounds: {
@@ -333,33 +372,36 @@ export function generateSyntheticPageContent(
 
   for (const cursor of columnCursors) {
     let isFirstItemInColumn = true
-    let keyValueRunLength = 0
+    let remainingKeyValueRows = 0
 
-    while (cursor.nextY < contentBottom - TEXT_METRICS.paragraph.lineHeight * 2) {
+    while (cursor.nextY < contentBottom - TEXT_STYLES.paragraph.lineHeightInWorldUnits * 2) {
       const remainingHeight = contentBottom - cursor.nextY
       let item: SyntheticPageItem
 
       if (isFirstItemInColumn && cursor.columnIndex === 0) {
-        item = createTextItem(random, cursor, pageIndex === 0 ? 'title' : 'heading', 1)
-      } else if (keyValueRunLength > 0) {
+        item =
+          pageIndex === 0
+            ? createTextItem(random, cursor, 'title', 1, makeDocumentTitle(random))
+            : createTextItem(random, cursor, 'heading', 1, makeHeading(random))
+      } else if (remainingKeyValueRows > 0) {
         item = createKeyValueItem(random, cursor)
-        keyValueRunLength -= 1
+        remainingKeyValueRows -= 1
       } else {
         const roll = random.nextFloat()
-        if (roll < 0.1 && remainingHeight > 260) {
+        if (roll < 0.1 && remainingHeight > 280) {
           item = createFigureItem(random, cursor)
-        } else if (roll < 0.28 && remainingHeight > 300 && cursor.bounds.width > 400) {
+        } else if (roll < 0.28 && remainingHeight > 300 && cursor.bounds.width > 420) {
           item = createTableItem(random, cursor)
-        } else if (roll < 0.42) {
-          keyValueRunLength = random.nextInteger(3, 8)
+        } else if (roll < 0.44) {
+          remainingKeyValueRows = random.nextInteger(4, 9)
           item = createKeyValueItem(random, cursor)
-          keyValueRunLength -= 1
-        } else if (roll < 0.52) {
-          item = createTextItem(random, cursor, 'heading', 1)
+          remainingKeyValueRows -= 1
+        } else if (roll < 0.54) {
+          item = createTextItem(random, cursor, 'heading', 1, makeHeading(random))
         } else {
           const maximumLineCount = Math.max(
             2,
-            Math.floor(remainingHeight / TEXT_METRICS.paragraph.lineHeight),
+            Math.floor(remainingHeight / TEXT_STYLES.paragraph.lineHeightInWorldUnits),
           )
           item = createTextItem(
             random,
@@ -375,12 +417,16 @@ export function generateSyntheticPageContent(
       }
 
       items.push(item)
-      cursor.nextY = item.bounds.y + item.bounds.height + BLOCK_SPACING_IN_WORLD_UNITS
+      const spacing =
+        item.kind === 'keyValue'
+          ? KEY_VALUE_ROW_SPACING_IN_WORLD_UNITS
+          : BLOCK_SPACING_IN_WORLD_UNITS
+      cursor.nextY = item.bounds.y + item.bounds.height + spacing
       isFirstItemInColumn = false
 
       if (item.kind === 'figure') {
-        items.push(createTextItem(random, cursor, 'caption', 1))
-        const caption = items[items.length - 1]
+        const caption = createTextItem(random, cursor, 'caption', 1)
+        items.push(caption)
         cursor.nextY = caption.bounds.y + caption.bounds.height + BLOCK_SPACING_IN_WORLD_UNITS
       }
     }

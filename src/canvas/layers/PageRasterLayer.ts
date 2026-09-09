@@ -16,20 +16,47 @@ const PAGE_SHADOW_COLOR = 'rgba(0, 0, 0, 0.45)'
 const PAGE_BORDER_COLOR = 'rgba(0, 0, 0, 0.55)'
 const PAGE_SHADOW_OFFSET_IN_WORLD_UNITS = 10
 
+type TileDrawCommand = {
+  bitmap: ImageBitmap | null
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type TileCollectionResult = {
+  /** Tiles that are cached and ready to composite. */
+  readyCount: number
+  /** Tiles the visible region needs, cached or not. */
+  requiredCount: number
+}
+
+export type PageRasterLayerStatistics = {
+  cachedTileCount: number
+  cachedThumbnailCount: number
+  pendingRasterCount: number
+  lastRasterMilliseconds: number
+  drawnTileCount: number
+}
+
 /**
  * Bottom layer: composites page rasters produced by the raster worker. It draws paper,
  * never ink — all glyph painting happens off the main thread.
  *
- * Refinement is progressive: the whole-page thumbnail is stretched under the tiles, so a
- * newly revealed page is never blank and never shows gaps while tiles stream in.
+ * Refinement is progressive: while a page is still missing tiles its whole-page
+ * thumbnail is stretched underneath, so a newly revealed page is never blank and never
+ * shows gaps. Once every visible tile has arrived the thumbnail is dropped, because
+ * upscaling it would only be overdrawn.
  */
 export class PageRasterLayer implements RenderLayer {
   readonly name = 'pageRaster'
 
   private readonly context: CanvasRenderingContext2D
   private readonly rasterCache: PageRasterCache
+  private readonly tileDrawPool: TileDrawCommand[] = []
+
   private backingSize: CanvasBackingSize | null = null
-  private lastDrawnTileCount = 0
+  private drawnTileCount = 0
 
   constructor(canvas: HTMLCanvasElement, documentSeed: number, onRasterReady: () => void) {
     const context = canvas.getContext('2d', { alpha: false })
@@ -40,12 +67,8 @@ export class PageRasterLayer implements RenderLayer {
     this.rasterCache = new PageRasterCache(documentSeed, onRasterReady)
   }
 
-  get statistics() {
-    return { ...this.rasterCache.statistics, drawnTileCount: this.lastDrawnTileCount }
-  }
-
-  setDocumentSeed(documentSeed: number): void {
-    this.rasterCache.reset(documentSeed)
+  get statistics(): PageRasterLayerStatistics {
+    return { ...this.rasterCache.statistics, drawnTileCount: this.drawnTileCount }
   }
 
   resize(backingSize: CanvasBackingSize): void {
@@ -67,68 +90,45 @@ export class PageRasterLayer implements RenderLayer {
       frame.pageCount,
     )
     if (firstPageIndex < 0) {
-      this.lastDrawnTileCount = 0
+      this.drawnTileCount = 0
       return
     }
 
     const neededTexelsPerWorldUnit = frame.camera.scale * frame.devicePixelRatio
-    const useTiles = neededTexelsPerWorldUnit > THUMBNAIL_ONLY_TEXELS_PER_WORLD_UNIT
-    const tileLevelIndex = selectTileLevelIndex(neededTexelsPerWorldUnit)
-    if (useTiles) {
+    const tileLevelIndex =
+      neededTexelsPerWorldUnit > THUMBNAIL_ONLY_TEXELS_PER_WORLD_UNIT
+        ? selectTileLevelIndex(neededTexelsPerWorldUnit)
+        : -1
+    if (tileLevelIndex >= 0) {
       this.rasterCache.setActiveTileLevel(tileLevelIndex)
     }
 
     applyWorldTransformToContext(context, frame.camera, frame.devicePixelRatio)
     context.imageSmoothingEnabled = true
-    context.imageSmoothingQuality = 'high'
 
     let drawnTileCount = 0
 
     for (let pageIndex = firstPageIndex; pageIndex <= lastPageIndex; pageIndex += 1) {
       const pageBounds = computePageBounds(pageIndex)
-      this.drawPageBackdrop(pageBounds, frame)
+      const tiles = this.collectTileDrawCommands(pageIndex, pageBounds, frame, tileLevelIndex)
+      const isFullyTiled = tiles.requiredCount > 0 && tiles.readyCount === tiles.requiredCount
 
-      const thumbnail = this.rasterCache.acquireThumbnail(pageIndex)
-      if (thumbnail) {
-        context.drawImage(
-          thumbnail,
-          pageBounds.x,
-          pageBounds.y,
-          pageBounds.width,
-          pageBounds.height,
-        )
+      this.drawPageShadow(pageBounds, frame)
+      if (!isFullyTiled) {
+        // Paper under the tiles is invisible once they all arrive, and filling a
+        // page-sized rect is one of the most expensive operations in the frame.
+        this.drawPaperBase(pageBounds)
+        this.drawThumbnailUnderlay(pageIndex, pageBounds, frame)
       }
 
-      if (!useTiles) {
-        continue
-      }
-
-      const visibleRectInPage = intersectIntoPageLocalRect(frame.visibleWorldRect, pageBounds)
-      if (!visibleRectInPage) {
-        continue
-      }
-
-      const tileRange = getVisibleTileRange(tileLevelIndex, visibleRectInPage)
-      if (!tileRange) {
-        continue
-      }
-
-      for (let tileY = tileRange.firstTileY; tileY <= tileRange.lastTileY; tileY += 1) {
-        for (let tileX = tileRange.firstTileX; tileX <= tileRange.lastTileX; tileX += 1) {
-          const tileBitmap = this.rasterCache.acquireTile(pageIndex, tileLevelIndex, tileX, tileY)
-          if (!tileBitmap) {
-            continue
-          }
-          const tileBounds = getTileBoundsInPage(tileLevelIndex, tileX, tileY)
-          context.drawImage(
-            tileBitmap,
-            pageBounds.x + tileBounds.x,
-            pageBounds.y + tileBounds.y,
-            tileBounds.width,
-            tileBounds.height,
-          )
-          drawnTileCount += 1
+      context.imageSmoothingQuality = 'high'
+      for (let commandIndex = 0; commandIndex < tiles.readyCount; commandIndex += 1) {
+        const command = this.tileDrawPool[commandIndex]
+        if (!command.bitmap) {
+          continue
         }
+        context.drawImage(command.bitmap, command.x, command.y, command.width, command.height)
+        drawnTileCount += 1
       }
     }
 
@@ -136,29 +136,108 @@ export class PageRasterLayer implements RenderLayer {
       this.strokePageBorder(computePageBounds(pageIndex), frame)
     }
 
-    this.lastDrawnTileCount = drawnTileCount
+    this.drawnTileCount = drawnTileCount
     context.setTransform(1, 0, 0, 1, 0, 0)
   }
 
   dispose(): void {
     this.rasterCache.dispose()
+    this.tileDrawPool.length = 0
   }
 
-  private drawPageBackdrop(pageBounds: Rect, frame: RenderFrame): void {
+  private drawThumbnailUnderlay(pageIndex: number, pageBounds: Rect, frame: RenderFrame): void {
+    const thumbnail = this.rasterCache.acquireThumbnail(pageIndex)
+    if (!thumbnail) {
+      return
+    }
+
+    // Magnifying a thumbnail produces a placeholder, not a final image, so the expensive
+    // resampling filter is reserved for the minifying case — where it is what keeps a
+    // densely printed page legible instead of aliased.
+    const drawnDeviceWidth = pageBounds.width * frame.camera.scale * frame.devicePixelRatio
+    this.context.imageSmoothingQuality = thumbnail.width >= drawnDeviceWidth ? 'high' : 'low'
+    this.context.drawImage(thumbnail, pageBounds.x, pageBounds.y, pageBounds.width, pageBounds.height)
+  }
+
+  /**
+   * Fills the reusable draw pool with every cached tile covering the visible part of a
+   * page. Commands are pooled objects, so compositing a frame allocates nothing.
+   */
+  private collectTileDrawCommands(
+    pageIndex: number,
+    pageBounds: Rect,
+    frame: RenderFrame,
+    tileLevelIndex: number,
+  ): TileCollectionResult {
+    if (tileLevelIndex < 0) {
+      return { readyCount: 0, requiredCount: 0 }
+    }
+
+    const visibleRectInPage = intersectIntoPageLocalRect(frame.visibleWorldRect, pageBounds)
+    if (!visibleRectInPage) {
+      return { readyCount: 0, requiredCount: 0 }
+    }
+
+    const tileRange = getVisibleTileRange(tileLevelIndex, visibleRectInPage)
+    if (!tileRange) {
+      return { readyCount: 0, requiredCount: 0 }
+    }
+
+    let readyCount = 0
+    let requiredCount = 0
+
+    for (let tileY = tileRange.firstTileY; tileY <= tileRange.lastTileY; tileY += 1) {
+      for (let tileX = tileRange.firstTileX; tileX <= tileRange.lastTileX; tileX += 1) {
+        requiredCount += 1
+        const bitmap = this.rasterCache.acquireTile(pageIndex, tileLevelIndex, tileX, tileY)
+        if (!bitmap) {
+          continue
+        }
+
+        const tileBounds = getTileBoundsInPage(tileLevelIndex, tileX, tileY)
+        const command = this.acquireTileDrawCommand(readyCount)
+        command.bitmap = bitmap
+        command.x = pageBounds.x + tileBounds.x
+        command.y = pageBounds.y + tileBounds.y
+        command.width = tileBounds.width
+        command.height = tileBounds.height
+        readyCount += 1
+      }
+    }
+
+    return { readyCount, requiredCount }
+  }
+
+  private acquireTileDrawCommand(index: number): TileDrawCommand {
+    const existing = this.tileDrawPool[index]
+    if (existing) {
+      return existing
+    }
+    const command: TileDrawCommand = { bitmap: null, x: 0, y: 0, width: 0, height: 0 }
+    this.tileDrawPool.push(command)
+    return command
+  }
+
+  /**
+   * Only the two strips the page does not cover are ever visible, so drawing those
+   * instead of a full page-sized rect saves a multi-megapixel fill every frame.
+   */
+  private drawPageShadow(pageBounds: Rect, frame: RenderFrame): void {
     const { context } = this
-    const shadowOffset = Math.min(
-      PAGE_SHADOW_OFFSET_IN_WORLD_UNITS,
-      PAGE_SHADOW_OFFSET_IN_WORLD_UNITS / Math.max(frame.camera.scale, 0.25),
-    )
+    const offset = PAGE_SHADOW_OFFSET_IN_WORLD_UNITS / Math.max(frame.camera.scale, 0.25)
     context.fillStyle = PAGE_SHADOW_COLOR
+    context.fillRect(pageBounds.x + pageBounds.width, pageBounds.y + offset, offset, pageBounds.height)
     context.fillRect(
-      pageBounds.x + shadowOffset,
-      pageBounds.y + shadowOffset,
+      pageBounds.x + offset,
+      pageBounds.y + pageBounds.height,
       pageBounds.width,
-      pageBounds.height,
+      offset,
     )
-    context.fillStyle = PAPER_FALLBACK_COLOR
-    context.fillRect(pageBounds.x, pageBounds.y, pageBounds.width, pageBounds.height)
+  }
+
+  private drawPaperBase(pageBounds: Rect): void {
+    this.context.fillStyle = PAPER_FALLBACK_COLOR
+    this.context.fillRect(pageBounds.x, pageBounds.y, pageBounds.width, pageBounds.height)
   }
 
   private strokePageBorder(pageBounds: Rect, frame: RenderFrame): void {

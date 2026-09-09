@@ -28,3 +28,7 @@ test-results
 playwright-report
 blob-report
 playwright/.cache
+
+# Local capture output
+*.png
+!public/**/*.png

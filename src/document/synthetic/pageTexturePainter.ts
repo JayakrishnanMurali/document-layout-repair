@@ -2,7 +2,11 @@ import { rectsIntersect, type Rect } from '@/canvas/geometry'
 import { PAGE_HEIGHT_IN_WORLD_UNITS, PAGE_WIDTH_IN_WORLD_UNITS } from '@/document/pageLayout'
 import { createRandomSource } from './randomSource'
 import {
-  WORD_GAP_IN_WORLD_UNITS,
+  KEY_VALUE_FONT_SIZE_IN_WORLD_UNITS,
+  TABLE_CELL_PADDING_IN_WORLD_UNITS,
+  TABLE_FONT_SIZE_IN_WORLD_UNITS,
+  getBaselineOffset,
+  getGlyphBoxHeight,
   type SyntheticPageContent,
   type SyntheticPageItem,
   type SyntheticTextLine,
@@ -10,14 +14,18 @@ import {
 
 export type Canvas2DContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 
+const DOCUMENT_FONT_STACK = "Georgia, 'Times New Roman', 'Noto Serif', serif"
 const PAPER_BASE_COLOR = '#f6f4ef'
-const INK_COLOR = '30, 33, 38'
-const RULE_COLOR = 'rgba(44, 48, 55, 0.55)'
+const INK_COLOR = 'rgba(30, 33, 38, 0.92)'
+const SECONDARY_INK_COLOR = 'rgba(30, 33, 38, 0.78)'
+const RULE_COLOR = 'rgba(44, 48, 55, 0.5)'
 const HEADER_FILL_COLOR = 'rgba(38, 42, 50, 0.07)'
 const FIGURE_FILL_COLOR = 'rgba(38, 42, 50, 0.05)'
 
 /** Divides the tile texel size, so paper grain is seamless across tile borders. */
 const NOISE_TILE_SIZE = 64
+
+const RIGHT_ALIGNED_COLUMN_KINDS = new Set(['amount', 'quantity'])
 
 function createBackingCanvas(width: number, height: number): OffscreenCanvas | HTMLCanvasElement {
   if (typeof OffscreenCanvas !== 'undefined') {
@@ -49,7 +57,7 @@ function getScanNoisePattern(context: Canvas2DContext): CanvasPattern | null {
     imageData.data[pixelIndex] = grain
     imageData.data[pixelIndex + 1] = grain
     imageData.data[pixelIndex + 2] = grain
-    imageData.data[pixelIndex + 3] = 26
+    imageData.data[pixelIndex + 3] = 24
   }
   tileContext.putImageData(imageData, 0, 0)
 
@@ -90,38 +98,66 @@ function paintPaper(
   }
 }
 
-function paintTextLine(
-  context: Canvas2DContext,
-  line: SyntheticTextLine,
-  inkAlpha: number,
-  wordRandomSeed: number,
-): void {
-  const random = createRandomSource(wordRandomSeed)
-  let wordX = line.bounds.x
+function setFont(context: Canvas2DContext, fontSizeInWorldUnits: number, isBold: boolean): void {
+  context.font = `${isBold ? '600 ' : ''}${fontSizeInWorldUnits}px ${DOCUMENT_FONT_STACK}`
+}
 
-  for (const wordWidth of line.wordWidths) {
-    const alpha = inkAlpha * random.nextInRange(0.82, 1)
-    const verticalJitter = random.nextInRange(-0.4, 0.4)
-    context.fillStyle = `rgba(${INK_COLOR}, ${alpha.toFixed(3)})`
-    context.fillRect(wordX, line.bounds.y + verticalJitter, wordWidth, line.glyphHeight)
-    wordX += wordWidth + WORD_GAP_IN_WORLD_UNITS
+/**
+ * Draws a word stretched to exactly the width the content generator recorded.
+ *
+ * The generator estimates widths without a canvas so that workers and tests agree; this
+ * absorbs the residual error (a few percent) instead of letting bounding boxes drift off
+ * the ink they annotate.
+ */
+function paintWordFittedToWidth(
+  context: Canvas2DContext,
+  text: string,
+  x: number,
+  baselineY: number,
+  targetWidth: number,
+): void {
+  const measuredWidth = context.measureText(text).width
+  if (measuredWidth <= 0) {
+    return
+  }
+
+  const horizontalScale = targetWidth / measuredWidth
+  if (Math.abs(horizontalScale - 1) < 0.015) {
+    context.fillText(text, x, baselineY)
+    return
+  }
+
+  context.save()
+  context.translate(x, baselineY)
+  context.scale(horizontalScale, 1)
+  context.fillText(text, 0, 0)
+  context.restore()
+}
+
+function paintTextLine(context: Canvas2DContext, line: SyntheticTextLine, inkColor: string): void {
+  setFont(context, line.fontSizeInWorldUnits, line.isBold)
+  context.fillStyle = inkColor
+  const baselineY = line.bounds.y + getBaselineOffset(line.fontSizeInWorldUnits)
+
+  for (const word of line.words) {
+    paintWordFittedToWidth(context, word.text, word.x, baselineY, word.width)
   }
 }
 
-function paintFigure(context: Canvas2DContext, bounds: { x: number; y: number; width: number; height: number }, figureSeed: number): void {
+function paintFigure(context: Canvas2DContext, bounds: Rect, figureSeed: number): void {
   context.fillStyle = FIGURE_FILL_COLOR
   context.fillRect(bounds.x, bounds.y, bounds.width, bounds.height)
 
-  const random = createRandomSource(figureSeed || 1)
+  const random = createRandomSource(figureSeed)
   const barCount = random.nextInteger(6, 14)
-  const plotInset = Math.min(28, bounds.width * 0.08)
+  const plotInset = Math.min(30, bounds.width * 0.08)
   const plotWidth = bounds.width - plotInset * 2
   const plotHeight = bounds.height - plotInset * 2
   const barSlotWidth = plotWidth / barCount
 
   for (let barIndex = 0; barIndex < barCount; barIndex += 1) {
     const barHeight = plotHeight * random.nextInRange(0.15, 1)
-    context.fillStyle = `rgba(${INK_COLOR}, ${random.nextInRange(0.24, 0.5).toFixed(3)})`
+    context.fillStyle = `rgba(30, 33, 38, ${random.nextInRange(0.24, 0.5).toFixed(3)})`
     context.fillRect(
       bounds.x + plotInset + barIndex * barSlotWidth + barSlotWidth * 0.18,
       bounds.y + plotInset + plotHeight - barHeight,
@@ -131,89 +167,122 @@ function paintFigure(context: Canvas2DContext, bounds: { x: number; y: number; w
   }
 
   context.strokeStyle = RULE_COLOR
+  context.beginPath()
+  context.moveTo(bounds.x + plotInset, bounds.y + plotInset)
+  context.lineTo(bounds.x + plotInset, bounds.y + plotInset + plotHeight)
+  context.lineTo(bounds.x + plotInset + plotWidth, bounds.y + plotInset + plotHeight)
+  context.stroke()
   context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height)
 }
 
-function paintItem(context: Canvas2DContext, item: SyntheticPageItem, itemIndex: number): void {
+function paintTable(
+  context: Canvas2DContext,
+  item: Extract<SyntheticPageItem, { kind: 'table' }>,
+): void {
+  const rowCount = item.rowEdges.length - 1
+  const columnCount = item.columnEdges.length - 1
+
+  for (let headerRowIndex = 0; headerRowIndex < item.headerRowCount; headerRowIndex += 1) {
+    context.fillStyle = HEADER_FILL_COLOR
+    context.fillRect(
+      item.bounds.x,
+      item.rowEdges[headerRowIndex],
+      item.bounds.width,
+      item.rowEdges[headerRowIndex + 1] - item.rowEdges[headerRowIndex],
+    )
+  }
+
+  context.strokeStyle = RULE_COLOR
+  context.beginPath()
+  for (const edgeY of item.rowEdges) {
+    context.moveTo(item.bounds.x, edgeY)
+    context.lineTo(item.bounds.x + item.bounds.width, edgeY)
+  }
+  for (const edgeX of item.columnEdges) {
+    context.moveTo(edgeX, item.bounds.y)
+    context.lineTo(edgeX, item.bounds.y + item.bounds.height)
+  }
+  context.stroke()
+
+  const baselineOffset = getBaselineOffset(TABLE_FONT_SIZE_IN_WORLD_UNITS)
+  const glyphBoxHeight = getGlyphBoxHeight(TABLE_FONT_SIZE_IN_WORLD_UNITS)
+
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+    const isHeaderRow = rowIndex < item.headerRowCount
+    setFont(context, TABLE_FONT_SIZE_IN_WORLD_UNITS, isHeaderRow)
+    context.fillStyle = isHeaderRow ? INK_COLOR : SECONDARY_INK_COLOR
+
+    const cellTop = item.rowEdges[rowIndex]
+    const cellHeight = item.rowEdges[rowIndex + 1] - cellTop
+    const baselineY = cellTop + (cellHeight - glyphBoxHeight) / 2 + baselineOffset
+
+    for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+      const text = item.cellTexts[rowIndex * columnCount + columnIndex]
+      if (!text) {
+        continue
+      }
+      const cellLeft = item.columnEdges[columnIndex]
+      const cellRight = item.columnEdges[columnIndex + 1]
+      const availableWidth = cellRight - cellLeft - TABLE_CELL_PADDING_IN_WORLD_UNITS * 2
+      const isRightAligned =
+        !isHeaderRow && RIGHT_ALIGNED_COLUMN_KINDS.has(item.columnKinds[columnIndex] ?? '')
+
+      context.textAlign = isRightAligned ? 'right' : 'left'
+      context.fillText(
+        text,
+        isRightAligned
+          ? cellRight - TABLE_CELL_PADDING_IN_WORLD_UNITS
+          : cellLeft + TABLE_CELL_PADDING_IN_WORLD_UNITS,
+        baselineY,
+        availableWidth,
+      )
+    }
+  }
+
+  context.textAlign = 'left'
+}
+
+function paintItem(context: Canvas2DContext, item: SyntheticPageItem): void {
   switch (item.kind) {
     case 'text': {
-      const inkAlpha = item.blockKind === 'paragraph' || item.blockKind === 'caption' ? 0.86 : 0.95
-      item.lines.forEach((line, lineIndex) => {
-        paintTextLine(context, line, inkAlpha, (itemIndex + 1) * 7919 + lineIndex * 104_729)
-      })
-      break
-    }
-
-    case 'table': {
-      const rowCount = item.rowEdges.length - 1
-      const columnCount = item.columnEdges.length - 1
-
-      for (let headerRowIndex = 0; headerRowIndex < item.headerRowCount; headerRowIndex += 1) {
-        context.fillStyle = HEADER_FILL_COLOR
-        context.fillRect(
-          item.bounds.x,
-          item.rowEdges[headerRowIndex],
-          item.bounds.width,
-          item.rowEdges[headerRowIndex + 1] - item.rowEdges[headerRowIndex],
-        )
-      }
-
-      context.strokeStyle = RULE_COLOR
-      context.beginPath()
-      for (const edgeY of item.rowEdges) {
-        context.moveTo(item.bounds.x, edgeY)
-        context.lineTo(item.bounds.x + item.bounds.width, edgeY)
-      }
-      for (const edgeX of item.columnEdges) {
-        context.moveTo(edgeX, item.bounds.y)
-        context.lineTo(edgeX, item.bounds.y + item.bounds.height)
-      }
-      context.stroke()
-
-      for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
-        for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
-          const fraction = item.cellTextFractions[rowIndex * columnCount + columnIndex]
-          const cellLeft = item.columnEdges[columnIndex]
-          const cellWidth = item.columnEdges[columnIndex + 1] - cellLeft
-          const cellTop = item.rowEdges[rowIndex]
-          const cellHeight = item.rowEdges[rowIndex + 1] - cellTop
-          const textHeight = Math.min(18, cellHeight * 0.42)
-          context.fillStyle = `rgba(${INK_COLOR}, ${rowIndex < item.headerRowCount ? 0.9 : 0.78})`
-          context.fillRect(
-            cellLeft + 10,
-            cellTop + (cellHeight - textHeight) / 2,
-            Math.max(6, (cellWidth - 20) * fraction),
-            textHeight,
-          )
-        }
+      const inkColor = item.styleName === 'caption' ? SECONDARY_INK_COLOR : INK_COLOR
+      for (const line of item.lines) {
+        paintTextLine(context, line, inkColor)
       }
       break
     }
+
+    case 'table':
+      paintTable(context, item)
+      break
 
     case 'keyValue': {
-      paintTextLine(
+      const baselineY = item.keyBounds.y + getBaselineOffset(KEY_VALUE_FONT_SIZE_IN_WORLD_UNITS)
+      setFont(context, KEY_VALUE_FONT_SIZE_IN_WORLD_UNITS, true)
+      context.fillStyle = SECONDARY_INK_COLOR
+      paintWordFittedToWidth(
         context,
-        { bounds: item.keyBounds, wordWidths: item.keyWordWidths, glyphHeight: item.keyBounds.height },
-        0.95,
-        (itemIndex + 1) * 15_485_863,
+        item.keyText,
+        item.keyBounds.x,
+        baselineY,
+        item.keyBounds.width,
       )
-      paintTextLine(
+
+      setFont(context, KEY_VALUE_FONT_SIZE_IN_WORLD_UNITS, false)
+      context.fillStyle = INK_COLOR
+      paintWordFittedToWidth(
         context,
-        {
-          bounds: item.valueBounds,
-          wordWidths: item.valueWordWidths,
-          glyphHeight: item.valueBounds.height,
-        },
-        0.8,
-        (itemIndex + 1) * 32_452_843,
+        item.valueText,
+        item.valueBounds.x,
+        baselineY,
+        item.valueBounds.width,
       )
       break
     }
 
-    case 'figure': {
+    case 'figure':
       paintFigure(context, item.bounds, item.figureSeed)
       break
-    }
   }
 }
 
@@ -239,12 +308,14 @@ export function paintSyntheticPageRegion(
     -sourceBounds.y * texelsPerWorldUnit,
   )
   context.lineWidth = Math.max(1.2, 1 / texelsPerWorldUnit)
+  context.textBaseline = 'alphabetic'
+  context.textAlign = 'left'
 
-  content.items.forEach((item, itemIndex) => {
+  for (const item of content.items) {
     if (rectsIntersect(item.bounds, sourceBounds)) {
-      paintItem(context, item, itemIndex)
+      paintItem(context, item)
     }
-  })
+  }
 
   context.setTransform(1, 0, 0, 1, 0, 0)
 }

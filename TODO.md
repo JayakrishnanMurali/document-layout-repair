@@ -35,7 +35,9 @@ handles, snap guides and labels. All three share one camera transform.
 - [x] Deterministic synthetic page content generator shared by textures and extraction data
 - [x] Page textures rasterized in a worker via `OffscreenCanvas` → `ImageBitmap`
 - [x] Texture level-of-detail by zoom + LRU bitmap cache with explicit `close()`
+- [x] Real glyph rendering on pages, with box widths that match the printed ink
 - [x] FPS / frame-time / draw-count HUD and zoom readout
+- [x] Dev scripts for screenshots and pan frame-rate measurement
 
 ## Phase 2 — Web Worker & spatial indexing (Module C)
 
