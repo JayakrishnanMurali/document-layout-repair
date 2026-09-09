@@ -161,23 +161,31 @@ handles, snap guides and labels. All three share one camera transform.
 
 ## Phase 9 — Verification, docs, polish
 
-- [ ] `ARCHITECTURE.md`: viewport matrix & render pipeline, worker strategy, spatial index, memory/FPS techniques
-- [ ] `README.md`: run instructions, feature tour, keyboard map
-- [ ] Docker build for one-command run
-- [ ] Performance evidence: DevTools trace + screenshot, capture instructions
-- [ ] Memory-leak check across repeated load/undo/redo cycles
-- [ ] Full test suite green, lint + typecheck clean
+- [x] `ARCHITECTURE.md`: viewport matrix & render pipeline, worker strategy, spatial index, memory/FPS techniques
+- [x] `README.md`: run instructions, feature tour, keyboard map
+- [~] Docker build for one-command run — written, not yet executed (no Docker daemon
+      available in this environment)
+- [x] Performance evidence: two DevTools timeline recordings (gzipped, loadable
+      directly by the Performance panel), HUD captures taken mid-pan, and the commands
+      that reproduce them — see `docs/performance`
+- [x] Memory check across repeated load/edit/undo/redo cycles, reading the real heap
+      over the DevTools protocol: 18 cycles and 90 edit passes move it 4.4 → 5.1 MB,
+      decelerating and flat by the end
+- [x] Full test suite green (189 unit, 49 Playwright), lint + typecheck clean
 
 ---
 
 ## Benchmark targets
 
-| Metric | Target |
-| --- | --- |
-| Viewport frame rate | 60 FPS sustained pan/zoom with 10k boxes |
-| Main-thread blocking | < 16ms long tasks during live ingestion |
-| Hit-test latency | < 2ms click-to-selection across 10k nodes |
-| Memory | no growth across repeated load/undo/redo cycles |
+Measured on a GPU-backed Chromium window at `devicePixelRatio` 2 — see
+[docs/performance](./docs/performance) for the traces and the commands.
+
+| Metric | Target | Measured |
+| --- | --- | --- |
+| Viewport frame rate | 60 FPS sustained pan/zoom with 10k boxes | 57–60 FPS, p95 0.2–0.4 ms |
+| Main-thread blocking | < 16ms long tasks during live ingestion | no long tasks; worst worker event 0.3–0.5 ms |
+| Hit-test latency | < 2ms click-to-selection across 10k nodes | 0.1–0.6 ms including the worker round trip |
+| Memory | no growth across repeated load/undo/redo cycles | flat after warm-up; 18 cycles move the heap 0.7 MB |
 
 ## Explicitly out of scope
 

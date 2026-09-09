@@ -29,6 +29,7 @@ playwright-report
 blob-report
 playwright/.cache
 
-# Local capture output
+# Local capture output, except the committed performance evidence
 *.png
 !public/**/*.png
+!docs/performance/*.png

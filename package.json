@@ -11,7 +11,11 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "perf:pan": "node scripts/measureViewportPerformance.mjs",
+    "perf:trace": "node scripts/capturePerformanceTrace.mjs",
+    "perf:memory": "node scripts/measureMemoryStability.mjs",
+    "screenshot": "node scripts/captureScreenshot.mjs"
   },
   "dependencies": {
     "react": "^19.2.8",
