@@ -184,10 +184,10 @@ Measured on a GPU-backed Chromium window at `devicePixelRatio` 2 — see
 
 | Metric | Target | Measured |
 | --- | --- | --- |
-| Viewport frame rate | 60 FPS sustained pan/zoom with 10k boxes | 57–60 FPS, p95 0.2–0.4 ms |
-| Main-thread blocking | < 16ms long tasks during live ingestion | no long tasks; worst worker event 0.3–0.5 ms |
+| Viewport frame rate | 60 FPS sustained pan/zoom with 10k boxes | 59–60 FPS, frame 0.10 ms, p95 0.20–0.30 ms |
+| Main-thread blocking | < 16ms long tasks during live ingestion | 0 long tasks; worst worker event 0.30 ms |
 | Hit-test latency | < 2ms click-to-selection across 10k nodes | 0.1–0.6 ms including the worker round trip |
-| Memory | no growth across repeated load/undo/redo cycles | flat after warm-up; 18 cycles move the heap 0.7 MB |
+| Memory | no growth across repeated load/undo/redo cycles | 20 cycles move the heap 4.5 → 5.1 MB, flat by the last five |
 
 ## Explicitly out of scope
 

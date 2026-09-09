@@ -46,15 +46,16 @@ lands on the ink it describes and every tree label quotes the text actually prin
 
 | Metric | Target | Measured |
 | --- | --- | --- |
-| Frame rate, continuous pan with the 100-page document | 60 FPS | 57–60 FPS · frame 0.1–0.2 ms · p95 0.2–0.4 ms |
-| …with culling off, all 11,513 boxes submitted | 60 FPS | 60 FPS · p95 0.2 ms |
-| Main-thread blocking during live SSE ingestion | < 16 ms | no long tasks · worst worker event 0.3–0.5 ms |
+| Frame rate, continuous pan with the 100-page document | 60 FPS | 59–60 FPS · frame 0.10 ms · p95 0.20–0.30 ms |
+| …with culling off, all 11,513 boxes submitted | 60 FPS | 59–60 FPS · frame 0.10 ms · p95 0.20 ms |
+| …pan at 500% zoom, 42 page tiles composited | 60 FPS | 56–60 FPS · frame 0.30 ms · p95 0.50 ms |
+| Main-thread blocking during live SSE ingestion | < 16 ms | 0 long tasks · worst worker event 0.30 ms |
 | Click-to-selection across 11,513 boxes | < 2 ms | 0.1–0.6 ms including the worker round trip |
-| Heap across 20 load / edit / undo / redo cycles | no leak | 4.4 → 5.1 MB, decelerating, flat by the last four |
+| Heap across 20 load / edit / undo / redo cycles | no leak | 4.5 → 5.1 MB, decelerating, flat by the last five |
 
-Taken on a GPU-backed Chromium window at `devicePixelRatio` 2. The workspace reports all
-of them live in its own HUD; [`docs/perf`](./docs/perf) holds the DevTools traces, the HUD
-captures and the commands that reproduce them.
+Taken from a production build in a GPU-backed Chromium window at `devicePixelRatio` 2. The
+workspace reports all of them live in its own HUD; [`docs/perf`](./docs/perf) holds the
+DevTools traces, the HUD captures and the commands that reproduce them.
 
 One finding worth flagging, because it contradicts the obvious expectation: **viewport
 culling makes no measurable difference on the WebGL2 path** — one instanced draw call
@@ -132,7 +133,7 @@ Consciously left out, and why:
 | `npm run dev` | Dev server, with the mock stream endpoint |
 | `npm run build` · `npm run preview` | Typecheck and build · serve the build with the endpoint |
 | `npm run typecheck` · `npm run lint` | TypeScript project check · ESLint |
-| `npm test` | Vitest suite — 189 tests |
+| `npm test` | Vitest suite — 198 tests |
 | `npm run test:e2e` | Playwright suite — 49 tests |
 | `npm run perf:pan` | Frame statistics before, during and after a continuous pan |
 | `npm run perf:trace` | A DevTools timeline recording plus the HUD mid-pan |

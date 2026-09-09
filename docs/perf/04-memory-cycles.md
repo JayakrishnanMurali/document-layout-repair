@@ -16,36 +16,36 @@ reports a bucketed value that cannot show a slow leak — it reported a suspicio
 $ npm run perf:memory -- 20
 
 cycle  heapMB  delta
-    1     4.2  +0.0
-    2     4.4  +0.0     <- baseline: workers created, caches warm
-    3     4.5  +0.1
-    4     4.7  +0.3
-    5     4.7  +0.4
-    6     4.8  +0.4
-    7     4.7  +0.3
-    8     4.8  +0.4
-    9     4.9  +0.5
-   10     4.9  +0.5
-   11     4.9  +0.5
-   12     4.9  +0.5
-   13     4.9  +0.5
-   14     5.0  +0.6
-   15     5.0  +0.6
-   16     5.0  +0.6
-   17     5.1  +0.7
-   18     5.1  +0.6
+    1     4.3  +0.0
+    2     4.5  +0.0     <- baseline: workers created, caches warm
+    3     4.5  +0.0
+    4     4.6  +0.2
+    5     4.8  +0.3
+    6     4.8  +0.3
+    7     4.8  +0.3
+    8     4.9  +0.4
+    9     4.8  +0.4
+   10     4.9  +0.4
+   11     4.9  +0.4
+   12     4.9  +0.4
+   13     5.0  +0.5
+   14     5.0  +0.5
+   15     5.0  +0.5
+   16     5.1  +0.6
+   17     5.1  +0.6
+   18     5.0  +0.6
    19     5.1  +0.6
    20     5.1  +0.6
 
 100 edit/undo/redo cycles completed
-settled range 4.4-5.1 MB, +0.04 MB per cycle
+settled range 4.5-5.1 MB, +0.03 MB per cycle
 ```
 
 ## Reading it
 
-20 full cycles and 100 edit/undo/redo passes move the heap from 4.4 MB to 5.1 MB, and the
-growth **decelerates**: roughly 0.1 MB per cycle over the first five, then flat at 5.1 MB
-for the last four. A leak is linear; this is the shape of V8 warming up — compiled code,
+20 full cycles and 100 edit/undo/redo passes move the heap from 4.5 MB to 5.1 MB, and the
+growth **decelerates**: roughly 0.1 MB per cycle over the first five, then flat within
+0.1 MB for the last five, drifting down as often as up. A leak is linear; this is the shape of V8 warming up — compiled code,
 inline caches, interned strings — against a document that is fully rebuilt every cycle.
 
 What keeps it flat is explicit ownership rather than luck:

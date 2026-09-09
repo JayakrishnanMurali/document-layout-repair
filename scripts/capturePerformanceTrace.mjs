@@ -17,7 +17,8 @@ import { Readable } from 'node:stream'
 import { chromium } from '@playwright/test'
 
 const presetName = process.argv[2] ?? 'Stress test document'
-const outputPath = process.argv[3] ?? 'docs/performance/pan-trace.json'
+const outputPath = process.argv[3] ?? 'docs/perf/pan-trace.json'
+const hudPath = process.env.HUD_PATH ?? outputPath.replace(/\.json$/, '-hud.png')
 const wheelDelta = Number(process.argv[4] ?? 2600)
 const previewUrl = process.env.PREVIEW_URL ?? 'http://localhost:4173/'
 const useGpu = process.env.GPU === '1'
@@ -93,7 +94,7 @@ for (let step = 0; step < 90; step += 1) {
 const statistics = (await viewport.innerText()).replace(/\n/g, ' ')
 const viewportBox = await viewport.boundingBox()
 await page.screenshot({
-  path: outputPath.replace(/\.json$/, '-hud.png'),
+  path: hudPath,
   clip: { x: viewportBox.x, y: viewportBox.y, width: 300, height: 240 },
 })
 await page.mouse.up()

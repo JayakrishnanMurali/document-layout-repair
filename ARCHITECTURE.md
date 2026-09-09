@@ -310,11 +310,11 @@ the `ResizeObserver`s, the editor subscription and the window listeners are all 
 when the viewport unmounts, which is what makes repeated preset switching flat rather than
 cumulative.
 
-Measured: 18 load / edit / undo / redo cycles over the 100-page document, with 90
-edit/undo/redo passes, move the heap from 4.4 MB to 5.1 MB with a decelerating trend that
-is flat by the last few cycles — V8 warm-up, not accumulation. `npm run perf:memory`
-reproduces it, reading the real used heap over the DevTools protocol because
-`performance.memory` is quantized and cannot show a slow leak.
+Measured: 20 load / edit / undo / redo cycles over the 100-page document, with 100
+edit/undo/redo passes, move the heap from 4.5 MB to 5.1 MB with a decelerating trend that
+is flat within 0.1 MB by the last five cycles — V8 warm-up, not accumulation.
+`npm run perf:memory` reproduces it, reading the real used heap over the DevTools protocol
+because `performance.memory` is quantized and cannot show a slow leak.
 
 ### Frame-rate techniques, in one list
 
@@ -347,15 +347,22 @@ workspace reports all of them live in its own HUD, and
 
 | Metric | Target | Measured |
 | --- | --- | --- |
-| Frame rate, continuous pan, 100-page document | 60 FPS | 57–60 FPS · frame 0.1–0.2 ms · p95 0.2–0.4 ms |
-| Frame rate, culling off, all 11,513 boxes submitted | 60 FPS | 60 FPS · p95 0.2 ms |
-| Main-thread long tasks during live SSE ingestion | < 16 ms | **none** · worst worker event 0.3–0.5 ms |
+| Frame rate, continuous pan, 100-page document | 60 FPS | 59–60 FPS · frame 0.10 ms · p95 0.20–0.30 ms |
+| Frame rate, culling off, all 11,513 boxes submitted | 60 FPS | 59–60 FPS · frame 0.10 ms · p95 0.20 ms |
+| Frame rate, pan at 500% zoom, 42 tiles composited | 60 FPS | 56–60 FPS · frame 0.30 ms · p95 0.50 ms |
+| Main-thread long tasks during live SSE ingestion | < 16 ms | **0 long tasks** · worst worker event 0.30 ms |
 | Click-to-selection across 11,513 boxes | < 2 ms | 0.1–0.6 ms including the worker round trip |
-| Heap across 20 load / edit / undo / redo cycles | no leak | 4.4 → 5.1 MB, decelerating, flat by the last four |
+| Heap across 20 load / edit / undo / redo cycles | no leak | 4.5 → 5.1 MB, decelerating, flat by the last five |
 
 `frame` is the time this application spends producing a frame — culling, buffer upload,
 draw calls, 2D chrome. It excludes the compositor, which is why the sustained frame rate is
 the honest headline and the traces are published alongside it.
+
+`fps` is derived from the intervals between rendered frames rather than by counting frames
+in a trailing second. Rendering is dirty-flag driven, so a trailing-window count decays as
+it drains the moment panning stops, which reads as a collapsing frame rate when nothing has
+slowed down; interval-based, it holds the rate of the last burst and labels itself idle
+separately.
 
 Headless Chromium rasterizes on the CPU through SwiftShader; the same pan that holds 60 FPS
 on a GPU reports 11 FPS headless, and ingestion picks up long tasks that are canvas
@@ -370,9 +377,9 @@ not — the instanced renderer is:
 | Overlay renderer | Culling | Boxes submitted | FPS | Frame time |
 | --- | --- | --- | --- | --- |
 | WebGL2 | on | 3,884 | 60 | 0.10 ms |
-| WebGL2 | **off** | 11,513 | 60 | 0.10 ms |
-| Canvas2D | on | 3,884 | 60 | 3.60 ms |
-| Canvas2D | **off** | 11,513 | **30** | **10.70 ms** |
+| WebGL2 | **off** | 11,513 | 59 | 0.10 ms |
+| Canvas2D | on | 3,884 | 60 | 3.70 ms |
+| Canvas2D | **off** | 11,513 | **30** | **10.20 ms** |
 
 One instanced draw call costs the same for 11,513 quads as for 3,884, so switching culling
 off changes nothing measurable on the GPU path. On the 2D path the cost is per box, and
