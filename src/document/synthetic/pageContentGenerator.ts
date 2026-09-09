@@ -1,5 +1,5 @@
-import type { Rect } from '../../canvas/geometry'
-import { getPageContentBounds } from '../pageLayout'
+import type { Rect } from '../../canvas/geometry.js'
+import { getPageContentBounds } from '../pageLayout.js'
 import {
   estimateTextWidth,
   makeDocumentTitle,
@@ -11,8 +11,8 @@ import {
   pickBodyWord,
   pickTableColumnKinds,
   type TableColumnKind,
-} from './documentVocabulary'
-import { createRandomSource, derivePageSeed, type RandomSource } from './randomSource'
+} from './documentVocabulary.js'
+import { createRandomSource, derivePageSeed, type RandomSource } from './randomSource.js'
 
 /**
  * Deterministic synthetic page content, in **page-local** coordinates (origin at the

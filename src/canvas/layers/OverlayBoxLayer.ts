@@ -19,6 +19,8 @@ export type OverlayBoxLayerOptions = {
   getDocument: () => LayoutDocument | null
   /** Debug switch: with culling off, every box in the document is submitted. */
   getIsCullingEnabled: () => boolean
+  /** `canvas2d` forces the fallback path even where WebGL2 is available. */
+  getRendererPreference: () => OverlayRendererKind
   onContextRestored: () => void
 }
 
@@ -36,6 +38,7 @@ export class OverlayBoxLayer implements RenderLayer {
   private readonly canvas: HTMLCanvasElement
   private readonly getDocument: () => LayoutDocument | null
   private readonly getIsCullingEnabled: () => boolean
+  private readonly getRendererPreference: () => OverlayRendererKind
   private readonly onContextRestored: () => void
   private readonly instances = new OverlayInstanceBuffer()
 
@@ -50,6 +53,7 @@ export class OverlayBoxLayer implements RenderLayer {
     this.canvas = options.canvas
     this.getDocument = options.getDocument
     this.getIsCullingEnabled = options.getIsCullingEnabled
+    this.getRendererPreference = options.getRendererPreference
     this.onContextRestored = options.onContextRestored
 
     this.canvas.addEventListener('webglcontextlost', this.handleContextLost)
@@ -136,6 +140,17 @@ export class OverlayBoxLayer implements RenderLayer {
   }
 
   private createRenderer(): void {
+    // A canvas can only ever hand out one kind of context, so switching renderers means
+    // the layer's canvas has to be replaced — which the engine does by rebuilding it.
+    if (this.getRendererPreference() === 'canvas2d') {
+      const fallbackContext = this.canvas.getContext('2d')
+      this.canvas2dRenderer = fallbackContext ? new Canvas2DOverlayRenderer(fallbackContext) : null
+      if (!this.canvas2dRenderer) {
+        throw new Error('No 2D context is available for the overlay layer')
+      }
+      return
+    }
+
     this.webglRenderer = WebGl2OverlayRenderer.create(this.canvas)
     if (this.webglRenderer) {
       if (this.backingSize) {

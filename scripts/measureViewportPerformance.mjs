@@ -32,6 +32,11 @@ await page.goto(previewUrl)
 await page.getByRole('button', { name: new RegExp(presetName) }).click()
 await page.waitForTimeout(600)
 
+if (process.env.RENDERER === 'canvas2d') {
+  await page.getByRole('button', { name: 'WebGL2' }).click()
+  await page.waitForTimeout(600)
+}
+
 if (process.env.CULLING === 'off') {
   await page.getByRole('button', { name: /Culling on/ }).click()
 }

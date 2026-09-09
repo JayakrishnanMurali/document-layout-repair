@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
-import { extractionStreamPlugin } from './src/server/extractionStreamPlugin'
+import { extractionStreamPlugin } from './src/server/extractionStreamPlugin.js'
 
 export default defineConfig({
   plugins: [react(), extractionStreamPlugin()],

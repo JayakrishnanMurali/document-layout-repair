@@ -1,4 +1,4 @@
-import type { Point, Rect } from '../canvas/geometry'
+import type { Point, Rect } from '../canvas/geometry.js'
 
 /** A4 at 150 dpi, in world units (1 world unit = 1 CSS pixel at 100% zoom). */
 export const PAGE_WIDTH_IN_WORLD_UNITS = 1240

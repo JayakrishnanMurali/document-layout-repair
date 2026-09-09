@@ -28,9 +28,15 @@ export function ViewportStatisticsOverlay({
 
   return (
     <div className={styles.overlay}>
-      <span className={styles.label}>fps</span>
+      <span
+        className={styles.label}
+        title="Measured from the intervals between rendered frames, so it holds steady when nothing needs redrawing"
+      >
+        fps
+      </span>
       <span data-testid="frames-per-second" className={budgetClassName}>
-        {frameStatistics.framesPerSecond === 0 ? 'idle' : frameStatistics.framesPerSecond}
+        {frameStatistics.framesPerSecond === 0 ? '—' : frameStatistics.framesPerSecond}
+        {frameStatistics.isIdle && <span className={styles.suffix}> idle</span>}
       </span>
 
       <span className={styles.label}>frame</span>

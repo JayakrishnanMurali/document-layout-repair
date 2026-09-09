@@ -25,6 +25,10 @@ export function App() {
   const setViewportCullingEnabled = useWorkspaceStore((state) => state.setViewportCullingEnabled)
   const activeToolId = useWorkspaceStore((state) => state.activeToolId)
   const setActiveTool = useWorkspaceStore((state) => state.setActiveTool)
+  const overlayRendererPreference = useWorkspaceStore((state) => state.overlayRendererPreference)
+  const setOverlayRendererPreference = useWorkspaceStore(
+    (state) => state.setOverlayRendererPreference,
+  )
   const canUndo = useEditorStore((state) => state.canUndo)
   const canRedo = useEditorStore((state) => state.canRedo)
   const nextUndoLabel = useEditorStore((state) => state.nextUndoLabel)
@@ -104,6 +108,20 @@ export function App() {
           onClick={() => setViewportCullingEnabled(!isViewportCullingEnabled)}
         >
           {isViewportCullingEnabled ? 'Culling on' : 'Culling off'}
+        </button>
+
+        <button
+          type="button"
+          className={overlayRendererPreference === 'webgl2' ? styles.toggle : styles.toggleActive}
+          aria-pressed={overlayRendererPreference === 'canvas2d'}
+          title="Draw the overlay with one instanced WebGL2 call, or with one 2D call per box"
+          onClick={() =>
+            setOverlayRendererPreference(
+              overlayRendererPreference === 'webgl2' ? 'canvas2d' : 'webgl2',
+            )
+          }
+        >
+          {overlayRendererPreference === 'webgl2' ? 'WebGL2' : 'Canvas2D'}
         </button>
       </header>
 

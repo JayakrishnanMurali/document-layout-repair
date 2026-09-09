@@ -35,3 +35,7 @@
 .valueDegraded {
   color: var(--warning);
 }
+
+.suffix {
+  color: var(--text-muted);
+}

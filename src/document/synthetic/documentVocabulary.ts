@@ -1,4 +1,4 @@
-import type { RandomSource } from './randomSource'
+import type { RandomSource } from './randomSource.js'
 
 /**
  * Vocabulary for the synthetic corpus. Page rasters, extraction payloads and the tree

@@ -1,10 +1,10 @@
-import type { SyntheticPageContent, SyntheticPageItem } from '../synthetic/pageContentGenerator'
-import { createRandomSource, derivePageSeed, type RandomSource } from '../synthetic/randomSource'
+import type { SyntheticPageContent, SyntheticPageItem } from '../synthetic/pageContentGenerator.js'
+import { createRandomSource, derivePageSeed, type RandomSource } from '../synthetic/randomSource.js'
 import type {
   ExtractionBoxPayload,
   ExtractionTablePayload,
   PageExtractionPayload,
-} from './extractionPayload'
+} from './extractionPayload.js'
 
 /**
  * Turns synthetic page content into the extraction payload an upstream model would emit.

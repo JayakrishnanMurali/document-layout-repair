@@ -1,4 +1,4 @@
-import type { ExtractionBoxPayload, PageExtractionPayload } from './extractionPayload'
+import type { ExtractionBoxPayload, PageExtractionPayload } from './extractionPayload.js'
 
 /**
  * Wire format of the live extraction stream.

@@ -1,6 +1,6 @@
 import type { Plugin, PreviewServer, ViteDevServer } from 'vite'
-import { createStreamEventSequence } from '../document/extraction/streamEventSource'
-import { EXTRACTION_STREAM_PATH } from '../document/extraction/streamEvents'
+import { createStreamEventSequence } from '../document/extraction/streamEventSource.js'
+import { EXTRACTION_STREAM_PATH } from '../document/extraction/streamEvents.js'
 
 const DEFAULT_PAGE_COUNT = 40
 const DEFAULT_CHUNKS_PER_PAGE = 3

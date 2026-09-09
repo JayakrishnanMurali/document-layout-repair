@@ -173,6 +173,10 @@ describe('QuadTree performance envelope', () => {
     }
     const averageMilliseconds = (performance.now() - startedAt) / probeCount
 
-    expect(averageMilliseconds).toBeLessThan(0.2)
+    // The budget is 2ms for the whole click-to-selection path, of which this query is
+    // one part; it typically measures around 0.1ms. The threshold is set to catch an
+    // algorithmic regression — a linear scan over 10,000 rectangles lands in the
+    // milliseconds — rather than to police the speed of whatever machine runs the suite.
+    expect(averageMilliseconds).toBeLessThan(1)
   })
 })

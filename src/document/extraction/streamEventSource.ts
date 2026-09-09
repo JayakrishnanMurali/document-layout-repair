@@ -1,7 +1,7 @@
-import { generateSyntheticPageContent } from '../synthetic/pageContentGenerator'
-import { createRandomSource } from '../synthetic/randomSource'
-import { buildPageExtractionPayload } from './payloadBuilder'
-import { splitPagePayloadIntoChunks, type ExtractionStreamEvent } from './streamEvents'
+import { generateSyntheticPageContent } from '../synthetic/pageContentGenerator.js'
+import { createRandomSource } from '../synthetic/randomSource.js'
+import { buildPageExtractionPayload } from './payloadBuilder.js'
+import { splitPagePayloadIntoChunks, type ExtractionStreamEvent } from './streamEvents.js'
 
 /**
  * Builds the event sequence a live extraction would produce.
@@ -12,6 +12,11 @@ import { splitPagePayloadIntoChunks, type ExtractionStreamEvent } from './stream
  *
  * Shared by the mock SSE endpoint and by the in-app fallback generator, so both drive the
  * receiver through exactly the same sequence.
+ *
+ * This module and its dependencies are compiled by three different toolchains — the app
+ * bundle, the Vite config that serves the endpoint locally, and the edge function that
+ * serves it in production. So along this chain, and only along it, imports avoid path
+ * aliases and carry explicit extensions, which is the one form all three resolve.
  */
 export function createStreamEventSequence(
   pageCount: number,

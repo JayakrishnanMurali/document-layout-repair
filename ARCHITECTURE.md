@@ -5,13 +5,12 @@ scans, thousands of interactive bounding boxes, a reading-order graph, editable 
 meshes, and a live extraction stream — at 60 FPS, with the expensive work off the main
 thread.
 
-This document covers the four things worth explaining: the coordinate math and render
-pipeline, how the threads talk, how hit-testing is indexed, and where the frame time and
-the memory go. It closes with the trade-offs I made deliberately.
+It starts with the parts that decide everything else — the coordinate transforms and the
+render pipeline, how the threads divide the work, how hit-testing is indexed, and where the
+frame time and the memory go — then the measured results, the transaction engine behind
+undo, the live stream, and the trade-offs I made deliberately.
 
----
-
-## 1. Threads and ownership
+## Overview
 
 ```
 ┌───────────────────────────── main thread ─────────────────────────────┐
@@ -55,7 +54,7 @@ arrays for the range it appended.
 
 ---
 
-## 2. Coordinate systems and the transformation matrix
+## 1. Viewport transformation matrix and the rendering pipeline
 
 Three spaces, in `src/canvas/viewport/camera.ts`:
 
@@ -140,9 +139,7 @@ tolerances, hairlines — is multiplied by the ratio at draw time and divided by
 hit-test time. Hairlines are drawn on half-pixel centres so a one-pixel line lands on one
 pixel rather than across two.
 
----
-
-## 3. The render pipeline
+### The layer stack
 
 Five stacked canvases in one container, composited by the browser in CSS z-order, all
 driven by one camera:
@@ -202,7 +199,7 @@ asserted.
 
 ---
 
-## 4. Worker communication
+## 2. Web Worker thread communication strategy
 
 Both workers use the same shape: a discriminated-union request type, a discriminated-union
 response type, and a correlation id per request. No `any` crosses the boundary, and
@@ -245,7 +242,7 @@ headers on every deployment and cross-thread mutation ordering to reason about. 
 
 ---
 
-## 5. Spatial indexing and hit-testing
+## 3. Spatial indexing for hit-testing
 
 `src/spatial/QuadTree.ts` — a region quadtree over world-space rectangles, node capacity
 8, maximum depth 12. Each node keeps its items as parallel arrays (`itemIds[i]` describes
@@ -282,6 +279,111 @@ Two different queries with different constraints:
 
 Marquee selection uses the same span walk as culling, for the same reason — it needs an
 answer within the gesture.
+
+---
+
+## 4. Memory management and frame-rate optimisation
+
+Nothing here is garbage collected on its own, so each is owned explicitly:
+
+**`ImageBitmap`s** are backed by driver memory. The page raster cache is an LRU keyed by
+page, level and tile, capped at 96 tiles and 128 thumbnails, and **`close()` is called on
+every eviction and teardown path** — including bitmaps that arrive after the cache was
+disposed.
+
+**Page rasters are tiled with level of detail.** A 100-page document at full resolution
+would be gigabytes. Instead: a whole-page thumbnail at ⅛ texel per world unit (~136 KB)
+used while zoomed out and as the instant fallback under missing tiles, and 512-texel tiles
+at power-of-two levels chosen so the texels drawn stay within a factor of two of the device
+pixels they cover. Only visible tiles are ever rasterized.
+
+**GL resources** — program, VAO, buffers — are deleted on disposal, and the instance
+buffer grows in powers of two so a deep zoom-out does not reallocate every frame.
+
+**Per-frame allocation is designed out** of the hot paths: the render frame object, the
+`mat3`, the visible-page list, tile draw commands and the frame-statistics ring buffer are
+all reused. The frame statistics are a fixed-size `Float32Array`, so measuring the frame
+rate cannot itself grow during a long pan.
+
+**Every subscription is disposable.** The render engine, input controller, both workers,
+the `ResizeObserver`s, the editor subscription and the window listeners are all torn down
+when the viewport unmounts, which is what makes repeated preset switching flat rather than
+cumulative.
+
+Measured: 18 load / edit / undo / redo cycles over the 100-page document, with 90
+edit/undo/redo passes, move the heap from 4.4 MB to 5.1 MB with a decelerating trend that
+is flat by the last few cycles — V8 warm-up, not accumulation. `npm run perf:memory`
+reproduces it, reading the real used heap over the DevTools protocol because
+`performance.memory` is quantized and cannot show a slow leak.
+
+### Frame-rate techniques, in one list
+
+1. One instanced draw call for every visible box; frame cost independent of box count.
+2. Culling over page spans, cached for a padded envelope so panning updates one uniform.
+3. Per-layer dirty flags across five canvases; hovering repaints outlines, not the document.
+4. Page rasterization entirely in a worker; the main thread only calls `drawImage`.
+5. Tile level of detail, so texels drawn stay within 2× of the device pixels they cover.
+6. Tiles composited on snapped device pixels — correctness, and no resampling of a
+   fractional edge.
+7. Expensive resampling reserved for minification; magnifying a placeholder thumbnail uses
+   the cheap filter.
+8. No per-frame allocation in the render loop.
+9. Level of detail on chrome too: badges, connectors and handles appear only once they are
+   large enough to read or aim at.
+10. Geometry never passes through React; a drag is one camera write and one repaint per
+    pointer event.
+
+---
+
+## 5. Measured results
+
+The stress document is generated deterministically from seed `0x5eed01`
+(`DOCUMENT_PRESETS.stressTest`), which is what makes these numbers repeatable: 100 pages,
+**11,513 boxes**, identical every run.
+
+Measured on a GPU-backed Chromium window, 1440×900 CSS at `devicePixelRatio` 2. The
+workspace reports all of them live in its own HUD, and
+[`docs/perf`](./docs/perf) holds the DevTools traces, the HUD captures and the commands.
+
+| Metric | Target | Measured |
+| --- | --- | --- |
+| Frame rate, continuous pan, 100-page document | 60 FPS | 57–60 FPS · frame 0.1–0.2 ms · p95 0.2–0.4 ms |
+| Frame rate, culling off, all 11,513 boxes submitted | 60 FPS | 60 FPS · p95 0.2 ms |
+| Main-thread long tasks during live SSE ingestion | < 16 ms | **none** · worst worker event 0.3–0.5 ms |
+| Click-to-selection across 11,513 boxes | < 2 ms | 0.1–0.6 ms including the worker round trip |
+| Heap across 20 load / edit / undo / redo cycles | no leak | 4.4 → 5.1 MB, decelerating, flat by the last four |
+
+`frame` is the time this application spends producing a frame — culling, buffer upload,
+draw calls, 2D chrome. It excludes the compositor, which is why the sustained frame rate is
+the honest headline and the traces are published alongside it.
+
+Headless Chromium rasterizes on the CPU through SwiftShader; the same pan that holds 60 FPS
+on a GPU reports 11 FPS headless, and ingestion picks up long tasks that are canvas
+painting rather than anything this application does. Every number above was taken on a
+GPU-backed window.
+
+### What culling is actually worth
+
+The obvious expectation is that viewport culling is what makes this fast. Measured, it is
+not — the instanced renderer is:
+
+| Overlay renderer | Culling | Boxes submitted | FPS | Frame time |
+| --- | --- | --- | --- | --- |
+| WebGL2 | on | 3,884 | 60 | 0.10 ms |
+| WebGL2 | **off** | 11,513 | 60 | 0.10 ms |
+| Canvas2D | on | 3,884 | 60 | 3.60 ms |
+| Canvas2D | **off** | 11,513 | **30** | **10.70 ms** |
+
+One instanced draw call costs the same for 11,513 quads as for 3,884, so switching culling
+off changes nothing measurable on the GPU path. On the 2D path the cost is per box, and
+culling is the difference between 60 FPS and 30 — which is exactly why a DOM overlay is
+ruled out, and why the toolbar can switch renderers: the claim is checkable rather than
+asserted.
+
+Culling still earns its place. It bounds the instance buffer upload — 322 KB versus half a
+kilobyte once the viewport is zoomed in on a handful of boxes — it keeps the 2D fallback
+usable, and it is the thing that would matter first if boxes gained per-instance state
+needing a repack every frame.
 
 ---
 
@@ -326,7 +428,7 @@ mesh.
 
 ---
 
-## 7. The live stream
+## 7. The live extraction stream
 
 Pages arrive out of order and interleaved, over Server-Sent Events from a Vite plugin that
 runs in both `dev` and `preview`. The point of a real endpoint rather than a timer is that
@@ -362,62 +464,7 @@ generates the same event sequence itself, so the workspace behaves identically e
 
 ---
 
-## 8. Memory management
-
-Nothing here is garbage collected on its own, so each is owned explicitly:
-
-**`ImageBitmap`s** are backed by driver memory. The page raster cache is an LRU keyed by
-page, level and tile, capped at 96 tiles and 128 thumbnails, and **`close()` is called on
-every eviction and teardown path** — including bitmaps that arrive after the cache was
-disposed.
-
-**Page rasters are tiled with level of detail.** A 100-page document at full resolution
-would be gigabytes. Instead: a whole-page thumbnail at ⅛ texel per world unit (~136 KB)
-used while zoomed out and as the instant fallback under missing tiles, and 512-texel tiles
-at power-of-two levels chosen so the texels drawn stay within a factor of two of the device
-pixels they cover. Only visible tiles are ever rasterized.
-
-**GL resources** — program, VAO, buffers — are deleted on disposal, and the instance
-buffer grows in powers of two so a deep zoom-out does not reallocate every frame.
-
-**Per-frame allocation is designed out** of the hot paths: the render frame object, the
-`mat3`, the visible-page list, tile draw commands and the frame-statistics ring buffer are
-all reused. The frame statistics are a fixed-size `Float32Array`, so measuring the frame
-rate cannot itself grow during a long pan.
-
-**Every subscription is disposable.** The render engine, input controller, both workers,
-the `ResizeObserver`s, the editor subscription and the window listeners are all torn down
-when the viewport unmounts, which is what makes repeated preset switching flat rather than
-cumulative.
-
-Measured: 18 load / edit / undo / redo cycles over the 100-page document, with 90
-edit/undo/redo passes, move the heap from 4.4 MB to 5.1 MB with a decelerating trend that
-is flat by the last few cycles — V8 warm-up, not accumulation. `npm run perf:memory`
-reproduces it, reading the real used heap over the DevTools protocol because
-`performance.memory` is quantized and cannot show a slow leak.
-
----
-
-## 9. Frame-rate techniques, in one list
-
-1. One instanced draw call for every visible box; frame cost independent of box count.
-2. Culling over page spans, cached for a padded envelope so panning updates one uniform.
-3. Per-layer dirty flags across five canvases; hovering repaints outlines, not the document.
-4. Page rasterization entirely in a worker; the main thread only calls `drawImage`.
-5. Tile level of detail, so texels drawn stay within 2× of the device pixels they cover.
-6. Tiles composited on snapped device pixels — correctness, and no resampling of a
-   fractional edge.
-7. Expensive resampling reserved for minification; magnifying a placeholder thumbnail uses
-   the cheap filter.
-8. No per-frame allocation in the render loop.
-9. Level of detail on chrome too: badges, connectors and handles appear only once they are
-   large enough to read or aim at.
-10. Geometry never passes through React; a drag is one camera write and one repaint per
-    pointer event.
-
----
-
-## 10. Deliberate trade-offs
+## 8. Deliberate trade-offs
 
 **Hit-testing round-trips to a worker.** It costs a fraction of a millisecond and keeps a
 single authority for the index. The alternative — a second quadtree on the main thread —

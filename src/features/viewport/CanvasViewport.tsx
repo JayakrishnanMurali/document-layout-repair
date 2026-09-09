@@ -38,6 +38,7 @@ const FOCUS_PADDING_FRACTION = 0.3
 
 const EMPTY_FRAME_STATISTICS: FrameStatisticsSnapshot = {
   framesPerSecond: 0,
+  isIdle: true,
   lastFrameMilliseconds: 0,
   worstFrameMilliseconds: 0,
   ninetyFifthPercentileFrameMilliseconds: 0,
@@ -45,6 +46,9 @@ const EMPTY_FRAME_STATISTICS: FrameStatisticsSnapshot = {
 }
 
 export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps) {
+  // A canvas cannot change context type, so switching the overlay renderer rebuilds the
+  // whole layer stack. It is a debug switch, so paying for a rebuild is the right trade.
+  const overlayRendererPreference = useWorkspaceStore((state) => state.overlayRendererPreference)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [frameStatistics, setFrameStatistics] = useState(EMPTY_FRAME_STATISTICS)
   const [overlayStatistics, setOverlayStatistics] = useState<OverlayBoxLayerStatistics | null>(null)
@@ -77,6 +81,7 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
       canvas: engine.createLayerCanvas(),
       getDocument: () => layoutEditor.getDocument(),
       getIsCullingEnabled: () => useWorkspaceStore.getState().isViewportCullingEnabled,
+      getRendererPreference: () => overlayRendererPreference,
       onContextRestored: () => engine.markDirty('overlayBoxes'),
     })
     engine.addLayer(overlayBoxLayer)
@@ -282,7 +287,7 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
       inputController.dispose()
       engine.dispose()
     }
-  }, [pageCount, documentSeed])
+  }, [pageCount, documentSeed, overlayRendererPreference])
 
   return (
     <div className={styles.viewport} ref={containerRef} aria-label="Document layout canvas">

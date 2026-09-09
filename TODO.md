@@ -163,8 +163,10 @@ handles, snap guides and labels. All three share one camera transform.
 
 - [x] `ARCHITECTURE.md`: viewport matrix & render pipeline, worker strategy, spatial index, memory/FPS techniques
 - [x] `README.md`: run instructions, feature tour, keyboard map
-- [~] Docker build for one-command run — written, not yet executed (no Docker daemon
-      available in this environment)
+- [x] Docker build for one-command run, verified: image builds, app and stream endpoint
+      both serve from the container
+- [x] Deployed to Vercel, with the stream endpoint as an edge function that shares the
+      event source with the local Vite middleware
 - [x] Performance evidence: two DevTools timeline recordings (gzipped, loadable
       directly by the Performance panel), HUD captures taken mid-pan, and the commands
       that reproduce them — see `docs/performance`
