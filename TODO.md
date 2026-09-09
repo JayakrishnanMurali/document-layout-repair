@@ -41,16 +41,16 @@ handles, snap guides and labels. All three share one camera transform.
 
 ## Phase 2 — Web Worker & spatial indexing (Module C)
 
-- [ ] Typed worker protocol (request/response + push events, no `any`)
-- [ ] Worker client with request correlation, transfer lists and disposal
-- [ ] Extraction payload parsing + normalization inside the worker
-- [ ] Structure-of-arrays geometry buffers transferred to the main thread
-- [ ] QuadTree built in the worker over world-space rects
-- [ ] `O(log N)` point hit-test + rect range query, topmost-first resolution
-- [ ] Incremental index updates on mutation (insert / update / remove)
-- [ ] Stress Test Document generator: 100 pages, 10,000 boxes
-- [ ] UI toggle to load the benchmark dataset
-- [ ] Unit tests: QuadTree vs. brute force, hit-test ordering, latency guard
+- [x] Typed worker protocol (request/response + push events, no `any`)
+- [x] Worker client with request correlation, transfer lists and disposal
+- [x] Extraction payload parsing + normalization inside the worker
+- [x] Structure-of-arrays geometry buffers transferred to the main thread
+- [x] QuadTree built in the worker over world-space rects
+- [x] `O(log N)` point hit-test + rect range query, topmost-first resolution
+- [x] Incremental index updates on mutation (insert / update / remove)
+- [x] Stress Test Document generator: 100 pages, 11,513 boxes
+- [x] UI toggle to load the benchmark dataset
+- [x] Unit tests: QuadTree vs. brute force, hit-test ordering, latency guard
 
 ## Phase 3 — WebGL instanced overlay renderer (Module A)
 

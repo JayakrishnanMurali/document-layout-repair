@@ -38,17 +38,6 @@
   overflow: hidden;
 }
 
-.statusBar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 0 12px;
-  background: var(--surface-panel);
-  border-top: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
 
 .placeholder {
   display: flex;

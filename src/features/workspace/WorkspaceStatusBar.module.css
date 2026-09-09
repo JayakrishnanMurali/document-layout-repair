@@ -1,0 +1,32 @@
+.statusBar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 12px;
+  background: var(--surface-panel);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.metric {
+  color: var(--text-secondary);
+}
+
+.metricValue {
+  color: var(--text-primary);
+}
+
+.selection {
+  color: var(--accent-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hints {
+  margin-left: auto;
+  color: var(--text-muted);
+}

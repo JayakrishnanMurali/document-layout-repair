@@ -1,10 +1,14 @@
-import { clampZoomScale } from '@/canvas/viewport/camera'
+import type { Point } from '@/canvas/geometry'
+import { clampZoomScale, screenToWorld } from '@/canvas/viewport/camera'
 import type { ViewportRenderEngine } from '@/canvas/ViewportRenderEngine'
 
 const WHEEL_ZOOM_SENSITIVITY = 0.0016
 const PINCH_ZOOM_SENSITIVITY = 0.011
 const KEYBOARD_PAN_STEP_IN_SCREEN_PIXELS = 80
 const KEYBOARD_ZOOM_STEP = 1.25
+/** A pointer that moves less than this between down and up counts as a click. */
+const TAP_MOVEMENT_TOLERANCE_IN_SCREEN_PIXELS = 4
+const TAP_DURATION_LIMIT_MILLISECONDS = 500
 
 export type ViewportInputControllerOptions = {
   element: HTMLElement
@@ -12,6 +16,10 @@ export type ViewportInputControllerOptions = {
   /** Lets an active editing tool claim a drag before it becomes a pan. */
   shouldStartPan?: (event: PointerEvent) => boolean
   onFitDocumentRequested?: () => void
+  /** Fired for a press that did not turn into a pan, in world coordinates. */
+  onTap?: (worldPoint: Point, event: PointerEvent) => void
+  /** Fired on every pointer move, in world coordinates, for hover feedback. */
+  onPointerMoveInWorld?: (worldPoint: Point, event: PointerEvent) => void
 }
 
 type ActivePointer = { pointerId: number; screenX: number; screenY: number }
@@ -27,6 +35,8 @@ export class ViewportInputController {
   private readonly engine: ViewportRenderEngine
   private readonly shouldStartPan: (event: PointerEvent) => boolean
   private readonly onFitDocumentRequested?: () => void
+  private readonly onTap?: (worldPoint: Point, event: PointerEvent) => void
+  private readonly onPointerMoveInWorld?: (worldPoint: Point, event: PointerEvent) => void
 
   private readonly activePointers = new Map<number, ActivePointer>()
   private panPointerId: number | null = null
@@ -37,11 +47,18 @@ export class ViewportInputController {
   private pinchStartDistance = 0
   private pinchStartScale = 1
 
+  private pressStartScreenX = 0
+  private pressStartScreenY = 0
+  private pressStartTimestamp = 0
+  private hasPressMovedBeyondTapTolerance = false
+
   constructor(options: ViewportInputControllerOptions) {
     this.element = options.element
     this.engine = options.engine
     this.shouldStartPan = options.shouldStartPan ?? (() => true)
     this.onFitDocumentRequested = options.onFitDocumentRequested
+    this.onTap = options.onTap
+    this.onPointerMoveInWorld = options.onPointerMoveInWorld
 
     this.element.style.touchAction = 'none'
     this.element.tabIndex = 0
@@ -85,6 +102,10 @@ export class ViewportInputController {
   private readonly handlePointerDown = (event: PointerEvent): void => {
     this.element.focus({ preventScroll: true })
     const screenPoint = this.getScreenPoint(event)
+    this.pressStartScreenX = screenPoint.x
+    this.pressStartScreenY = screenPoint.y
+    this.pressStartTimestamp = event.timeStamp
+    this.hasPressMovedBeyondTapTolerance = false
     this.activePointers.set(event.pointerId, {
       pointerId: event.pointerId,
       screenX: screenPoint.x,
@@ -122,8 +143,17 @@ export class ViewportInputController {
       return
     }
 
+    this.onPointerMoveInWorld?.(this.toWorldPoint(screenPoint), event)
+
     if (this.panPointerId !== event.pointerId) {
       return
+    }
+
+    if (
+      Math.abs(screenPoint.x - this.pressStartScreenX) > TAP_MOVEMENT_TOLERANCE_IN_SCREEN_PIXELS ||
+      Math.abs(screenPoint.y - this.pressStartScreenY) > TAP_MOVEMENT_TOLERANCE_IN_SCREEN_PIXELS
+    ) {
+      this.hasPressMovedBeyondTapTolerance = true
     }
 
     this.engine.panByScreenDelta(
@@ -136,6 +166,14 @@ export class ViewportInputController {
 
   private readonly handlePointerUp = (event: PointerEvent): void => {
     this.activePointers.delete(event.pointerId)
+
+    const isTap =
+      !this.hasPressMovedBeyondTapTolerance &&
+      event.timeStamp - this.pressStartTimestamp < TAP_DURATION_LIMIT_MILLISECONDS &&
+      event.type === 'pointerup'
+    if (isTap && !this.isSpaceKeyHeld) {
+      this.onTap?.(this.toWorldPoint(this.getScreenPoint(event)), event)
+    }
 
     if (this.panPointerId === event.pointerId) {
       this.panPointerId = null
@@ -215,6 +253,10 @@ export class ViewportInputController {
     this.panPointerId = null
     this.activePointers.clear()
     this.updateCursor()
+  }
+
+  private toWorldPoint(screenPoint: Point): Point {
+    return screenToWorld(this.engine.getCamera(), screenPoint)
   }
 
   private zoomAtViewportCenter(requestedScale: number): void {

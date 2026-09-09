@@ -5,6 +5,7 @@ import { ViewportRenderEngine } from '@/canvas/ViewportRenderEngine'
 import { fitWorldRectInViewport } from '@/canvas/viewport/camera'
 import type { FrameStatisticsSnapshot } from '@/canvas/FrameStatistics'
 import { computeDocumentBounds, computePageBounds } from '@/document/pageLayout'
+import { useDocumentStore } from '@/state/documentStore'
 import { ViewportStatisticsOverlay } from './ViewportStatisticsOverlay'
 import styles from './CanvasViewport.module.css'
 
@@ -57,6 +58,9 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
       element: container,
       engine,
       onFitDocumentRequested: fitWholeDocument,
+      onTap: (worldPoint) => {
+        void useDocumentStore.getState().selectNodeAtWorldPoint(worldPoint.x, worldPoint.y)
+      },
     })
 
     fitFirstPage()

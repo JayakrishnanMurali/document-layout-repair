@@ -1,4 +1,7 @@
+import { useEffect } from 'react'
 import { CanvasViewport } from '@/features/viewport/CanvasViewport'
+import { WorkspaceStatusBar } from '@/features/workspace/WorkspaceStatusBar'
+import { useDocumentStore } from '@/state/documentStore'
 import {
   DOCUMENT_PRESETS,
   useActiveDocumentPreset,
@@ -12,6 +15,11 @@ const PRESET_ORDER: DocumentPresetId[] = ['sample', 'stressTest']
 export function App() {
   const activePreset = useActiveDocumentPreset()
   const loadPreset = useWorkspaceStore((state) => state.loadPreset)
+  const loadDocumentPreset = useDocumentStore((state) => state.loadPreset)
+
+  useEffect(() => {
+    void loadDocumentPreset(activePreset)
+  }, [activePreset, loadDocumentPreset])
 
   return (
     <div className={styles.workspace}>
@@ -50,10 +58,7 @@ export function App() {
         </aside>
       </div>
 
-      <footer className={styles.statusBar}>
-        <span>{activePreset.pageCount} pages</span>
-        <span>drag to pan · wheel to zoom · 0 fit document · 1 actual size</span>
-      </footer>
+      <WorkspaceStatusBar />
     </div>
   )
 }
