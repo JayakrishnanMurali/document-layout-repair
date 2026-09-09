@@ -3,6 +3,7 @@ import { createDocumentPageLayout, getPageBounds } from '@/document/pageLayout'
 import {
   BLOCK_LEVEL_CLASSES,
   getLayoutNodeClassName,
+  getPageNodeCount,
   getTableCellBounds,
   type LayoutDocument,
 } from '@/document/layoutTypes'
@@ -57,10 +58,13 @@ describe('stress test document', () => {
 
   it('gives every page a contiguous, non-overlapping node range', () => {
     let expectedFirstNodeId = 0
-    for (const range of document.pageNodeRanges) {
-      expect(range.firstNodeId).toBe(expectedFirstNodeId)
-      expect(range.nodeCount).toBeGreaterThan(0)
-      expectedFirstNodeId += range.nodeCount
+    for (const ranges of document.nodeRangesByPage) {
+      expect(ranges).toHaveLength(1)
+      for (const range of ranges) {
+        expect(range.firstNodeId).toBe(expectedFirstNodeId)
+        expect(range.nodeCount).toBeGreaterThan(0)
+        expectedFirstNodeId += range.nodeCount
+      }
     }
     expect(expectedFirstNodeId).toBe(document.geometry.nodeCount)
   })
@@ -168,10 +172,12 @@ describe('page ingestion', () => {
     expect(builder.ingestedPageCount).toBe(4)
 
     for (let pageIndex = 0; pageIndex < 4; pageIndex += 1) {
-      const range = document.pageNodeRanges[pageIndex]
-      expect(range.nodeCount).toBeGreaterThan(0)
-      for (let nodeId = range.firstNodeId; nodeId < range.firstNodeId + range.nodeCount; nodeId += 1) {
-        expect(document.geometry.pageIndexes[nodeId]).toBe(pageIndex)
+      expect(getPageNodeCount(document, pageIndex)).toBeGreaterThan(0)
+      for (const range of document.nodeRangesByPage[pageIndex]) {
+        const lastNodeId = range.firstNodeId + range.nodeCount
+        for (let nodeId = range.firstNodeId; nodeId < lastNodeId; nodeId += 1) {
+          expect(document.geometry.pageIndexes[nodeId]).toBe(pageIndex)
+        }
       }
     }
   })

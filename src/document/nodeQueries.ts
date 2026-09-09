@@ -35,27 +35,24 @@ export function collectNodesInWorldRect(
   const pageIndexes = collectVisiblePageIndexes(pageLayout, worldRect, visiblePageIndexesScratch)
 
   for (const pageIndex of pageIndexes) {
-    const range = layoutDocument.pageNodeRanges[pageIndex]
-    if (!range) {
-      continue
-    }
+    for (const range of layoutDocument.nodeRangesByPage[pageIndex] ?? []) {
+      const lastNodeId = range.firstNodeId + range.nodeCount
+      for (let nodeId = range.firstNodeId; nodeId < lastNodeId; nodeId += 1) {
+        if ((layoutDocument.geometry.flags[nodeId] & NODE_FLAG_REMOVED) !== 0) {
+          continue
+        }
 
-    const lastNodeId = range.firstNodeId + range.nodeCount
-    for (let nodeId = range.firstNodeId; nodeId < lastNodeId; nodeId += 1) {
-      if ((layoutDocument.geometry.flags[nodeId] & NODE_FLAG_REMOVED) !== 0) {
-        continue
-      }
+        const nodeBounds = readNodeBounds(layoutDocument.geometry, nodeId, boundsScratch)
+        const isMatch =
+          mode === 'contained'
+            ? rectContainsRect(worldRect, nodeBounds)
+            : rectsIntersect(worldRect, nodeBounds)
 
-      const nodeBounds = readNodeBounds(layoutDocument.geometry, nodeId, boundsScratch)
-      const isMatch =
-        mode === 'contained'
-          ? rectContainsRect(worldRect, nodeBounds)
-          : rectsIntersect(worldRect, nodeBounds)
-
-      if (isMatch) {
-        results.push(nodeId)
-        if (results.length >= maximumResults) {
-          return results
+        if (isMatch) {
+          results.push(nodeId)
+          if (results.length >= maximumResults) {
+            return results
+          }
         }
       }
     }

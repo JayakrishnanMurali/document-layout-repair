@@ -1,5 +1,5 @@
-import type { SyntheticPageContent, SyntheticPageItem } from '@/document/synthetic/pageContentGenerator'
-import { createRandomSource, derivePageSeed, type RandomSource } from '@/document/synthetic/randomSource'
+import type { SyntheticPageContent, SyntheticPageItem } from '../synthetic/pageContentGenerator'
+import { createRandomSource, derivePageSeed, type RandomSource } from '../synthetic/randomSource'
 import type {
   ExtractionBoxPayload,
   ExtractionTablePayload,

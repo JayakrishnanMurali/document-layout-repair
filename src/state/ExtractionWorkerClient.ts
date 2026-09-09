@@ -1,6 +1,9 @@
+import type { DocumentAppendPatch } from '@/document/extraction/documentAppend'
 import type { PageExtractionPayload } from '@/document/extraction/extractionPayload'
 import type { LayoutDocument, LayoutNodeId } from '@/document/layoutTypes'
 import type {
+  ExtractionStreamSource,
+  ExtractionStreamStatistics,
   ExtractionTimings,
   ExtractionWorkerRequest,
   ExtractionWorkerResponse,
@@ -24,6 +27,33 @@ export type HitTestResult = {
   queryMilliseconds: number
 }
 
+export type StreamStartOptions = {
+  source: ExtractionStreamSource
+  streamUrl: string
+  pageCount: number
+  documentSeed: number
+  chunksPerPage: number
+  intervalMilliseconds: number
+}
+
+/**
+ * A live stream is a subscription, not a request/response — so it reports through
+ * callbacks rather than a promise.
+ */
+export type StreamSubscriber = {
+  onStarted: (info: {
+    source: ExtractionStreamSource
+    pageCount: number
+    documentSeed: number
+  }) => void
+  onNodesAppended: (
+    patch: DocumentAppendPatch,
+    statistics: ExtractionStreamStatistics,
+  ) => void
+  onCompleted: (statistics: ExtractionStreamStatistics) => void
+  onFailed: (reason: string) => void
+}
+
 type PendingRequest = {
   resolve: (value: never) => void
   reject: (reason: Error) => void
@@ -41,6 +71,8 @@ export class ExtractionWorkerClient {
   private readonly pendingRequests = new Map<number, PendingRequest>()
   private nextRequestId = 1
   private onLoadProgress: ((progress: DocumentLoadProgress) => void) | null = null
+  private streamSubscriber: StreamSubscriber | null = null
+  private activeStreamRequestId = 0
   private isDisposed = false
 
   constructor() {
@@ -107,7 +139,31 @@ export class ExtractionWorkerClient {
     )
   }
 
+  startStream(options: StreamStartOptions, subscriber: StreamSubscriber): void {
+    this.streamSubscriber = subscriber
+    this.activeStreamRequestId = this.nextRequestId++
+    this.worker.postMessage({
+      kind: 'startStream',
+      requestId: this.activeStreamRequestId,
+      ...options,
+    } satisfies ExtractionWorkerRequest)
+  }
+
+  stopStream(): void {
+    if (this.activeStreamRequestId === 0) {
+      return
+    }
+    this.worker.postMessage({
+      kind: 'stopStream',
+      requestId: this.activeStreamRequestId,
+    } satisfies ExtractionWorkerRequest)
+    this.streamSubscriber = null
+    this.activeStreamRequestId = 0
+  }
+
   reset(): void {
+    this.streamSubscriber = null
+    this.activeStreamRequestId = 0
     this.worker.postMessage({ kind: 'reset' } satisfies ExtractionWorkerRequest)
   }
 
@@ -120,6 +176,7 @@ export class ExtractionWorkerClient {
     }
     this.pendingRequests.clear()
     this.onLoadProgress = null
+    this.streamSubscriber = null
   }
 
   private sendRequest<ResultType>(
@@ -194,6 +251,42 @@ export class ExtractionWorkerClient {
 
       case 'geometryPatched':
         this.settle(message.requestId, message.reindexMilliseconds)
+        break
+
+      case 'streamStarted':
+        if (message.requestId === this.activeStreamRequestId) {
+          this.streamSubscriber?.onStarted({
+            source: message.source,
+            pageCount: message.pageCount,
+            documentSeed: message.documentSeed,
+          })
+        }
+        break
+
+      case 'nodesAppended':
+        if (message.requestId === this.activeStreamRequestId) {
+          this.streamSubscriber?.onNodesAppended(message.patch, message.statistics)
+        }
+        break
+
+      // The stream is retired before the callback runs, because a subscriber is allowed
+      // to start another one from inside it — falling back to the in-worker generator
+      // when the endpoint is unreachable does exactly that, and clearing the id
+      // afterwards would wipe the stream it had just opened.
+      case 'streamCompleted':
+        if (message.requestId === this.activeStreamRequestId) {
+          const subscriber = this.streamSubscriber
+          this.activeStreamRequestId = 0
+          subscriber?.onCompleted(message.statistics)
+        }
+        break
+
+      case 'streamFailed':
+        if (message.requestId === this.activeStreamRequestId) {
+          const subscriber = this.streamSubscriber
+          this.activeStreamRequestId = 0
+          subscriber?.onFailed(message.reason)
+        }
         break
 
       case 'workerFailed': {

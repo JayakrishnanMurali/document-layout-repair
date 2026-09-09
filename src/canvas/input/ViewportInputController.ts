@@ -123,6 +123,22 @@ export class ViewportInputController {
     return this.panPointerId !== null
   }
 
+  /**
+   * Whether an event landed on the drawing surface rather than on chrome floating above
+   * it.
+   *
+   * The stats overlay and the stream panel are children of the same element, and the
+   * pointer capture this controller takes on press otherwise retargets the following
+   * `click` to the container — so a button inside an overlay would never receive it.
+   */
+  private isEventOnCanvasSurface(event: Event): boolean {
+    const { target } = event
+    if (target === this.element) {
+      return true
+    }
+    return target instanceof HTMLCanvasElement && target.parentElement === this.element
+  }
+
   private get isDragging(): boolean {
     return this.panPointerId !== null || this.activeGestureHandler !== null
   }
@@ -173,6 +189,10 @@ export class ViewportInputController {
   }
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
+    if (!this.isEventOnCanvasSurface(event)) {
+      return
+    }
+
     this.element.focus({ preventScroll: true })
     const screenPoint = this.getScreenPoint(event)
     this.pressStartScreenX = screenPoint.x
@@ -207,6 +227,11 @@ export class ViewportInputController {
   }
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
+    if (!this.isDragging && !this.isEventOnCanvasSurface(event)) {
+      this.onHover?.(null)
+      return
+    }
+
     const screenPoint = this.getScreenPoint(event)
     const tracked = this.activePointers.get(event.pointerId)
     if (tracked) {
@@ -336,6 +361,10 @@ export class ViewportInputController {
   }
 
   private readonly handleWheel = (event: WheelEvent): void => {
+    // Let an overlay panel scroll its own content instead of zooming the document.
+    if (!this.isEventOnCanvasSurface(event)) {
+      return
+    }
     event.preventDefault()
 
     const screenPoint = this.getScreenPoint(event)

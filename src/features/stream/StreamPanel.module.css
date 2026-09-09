@@ -1,0 +1,137 @@
+.panel {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 3;
+  width: 330px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: rgba(13, 17, 23, 0.9);
+  backdrop-filter: blur(6px);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.statusDotLive {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.2);
+}
+
+.statusDotFailed {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.headerAction {
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.headerAction:hover:enabled {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.headerAction:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 3px 8px;
+  padding: 9px 10px;
+}
+
+.label {
+  color: var(--text-muted);
+}
+
+.value {
+  color: var(--text-primary);
+}
+
+.valueHealthy {
+  color: var(--success);
+}
+
+.valueDegraded {
+  color: var(--warning);
+}
+
+.progressTrack {
+  height: 3px;
+  background: var(--surface-raised);
+}
+
+.progressBar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+.log {
+  max-height: 132px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.logRow {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 8px;
+  padding: 2px 10px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.logRow:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.logPage {
+  color: var(--text-secondary);
+}
+
+.note {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}

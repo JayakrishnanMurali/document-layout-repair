@@ -7,6 +7,7 @@ import {
   LOW_CONFIDENCE_THRESHOLD,
   NODE_FLAG_LOW_CONFIDENCE,
   getLayoutNodeClassId,
+  sortTableMeshesByPosition,
   type LayoutDocument,
   type LayoutGeometry,
   type LayoutNodeId,
@@ -20,6 +21,7 @@ import {
   createLayoutGeometry,
   ensureLayoutGeometryCapacity,
 } from '@/document/geometryBuffers'
+import type { DocumentAppendPatch } from './documentAppend'
 import type { PageExtractionPayload } from './extractionPayload'
 
 export type PageIngestResult = {
@@ -43,11 +45,19 @@ export class LayoutDocumentBuilder {
   private readonly childIdsByNodeId: LayoutNodeId[][] = []
   private readonly nodeIdsBySourceId = new Map<string, LayoutNodeId>()
 
-  private readonly pageNodeRanges: PageNodeRange[]
+  private readonly nodeRangesByPage: PageNodeRange[][]
   private readonly rootNodeIdsByPage: LayoutNodeId[][]
   private readonly readingOrderByPage: ReadingOrderSequence[]
   private readonly tableMeshesByPage: TableMesh[][]
   private readonly ingestedPageIndexes = new Set<number>()
+  /**
+   * The page's reading order as the model stated it, kept as source ids.
+   *
+   * Stream chunks arrive in any order, so the resolved order is recomputed from this list
+   * after every append — filtered to the blocks that have actually arrived. Appending in
+   * arrival order would scramble it.
+   */
+  private readonly readingOrderSourceIdsByPage: string[][]
   private readonly cellReferencesByTableSourceId = new Map<string, TableCellReference[]>()
   private readonly pageCount: number
   private readonly pageLayout: DocumentPageLayout
@@ -55,11 +65,8 @@ export class LayoutDocumentBuilder {
   constructor(pageCount: number) {
     this.pageCount = pageCount
     this.pageLayout = createDocumentPageLayout(pageCount)
-    this.pageNodeRanges = Array.from({ length: pageCount }, (_unused, pageIndex) => ({
-      pageIndex,
-      firstNodeId: 0,
-      nodeCount: 0,
-    }))
+    this.nodeRangesByPage = Array.from({ length: pageCount }, () => [])
+    this.readingOrderSourceIdsByPage = Array.from({ length: pageCount }, () => [])
     this.rootNodeIdsByPage = Array.from({ length: pageCount }, () => [])
     this.readingOrderByPage = Array.from({ length: pageCount }, (_unused, pageIndex) => ({
       pageIndex,
@@ -80,17 +87,36 @@ export class LayoutDocumentBuilder {
     return this.ingestedPageIndexes.has(pageIndex)
   }
 
+  /** Ingests a whole page. Idempotent, so a duplicated delivery cannot double-insert it. */
   ingestPage(payload: PageExtractionPayload): PageIngestResult {
+    if (this.ingestedPageIndexes.has(payload.pageIndex)) {
+      const [existingRange] = this.nodeRangesByPage[payload.pageIndex]
+      return existingRange ?? { pageIndex: payload.pageIndex, firstNodeId: 0, nodeCount: 0 }
+    }
+
+    const range = this.appendPayload(payload)
+    this.ingestedPageIndexes.add(payload.pageIndex)
+    return range
+  }
+
+  /**
+   * Ingests part of a page from the live stream.
+   *
+   * Each chunk becomes its own contiguous span, so chunks from different pages can
+   * interleave freely; the page is only counted as ingested once its last chunk lands.
+   */
+  ingestPageChunk(payload: PageExtractionPayload, isFinalChunk: boolean): PageIngestResult {
+    const range = this.appendPayload(payload)
+    if (isFinalChunk) {
+      this.ingestedPageIndexes.add(payload.pageIndex)
+    }
+    return range
+  }
+
+  private appendPayload(payload: PageExtractionPayload): PageIngestResult {
     const { pageIndex } = payload
     if (pageIndex < 0 || pageIndex >= this.pageCount) {
       throw new Error(`Page ${pageIndex} is outside the document's ${this.pageCount} pages`)
-    }
-    if (this.ingestedPageIndexes.has(pageIndex)) {
-      return {
-        pageIndex,
-        firstNodeId: this.pageNodeRanges[pageIndex].firstNodeId,
-        nodeCount: this.pageNodeRanges[pageIndex].nodeCount,
-      }
     }
 
     const pageBounds = getPageBounds(this.pageLayout, pageIndex)
@@ -151,25 +177,32 @@ export class LayoutDocumentBuilder {
       this.childIdsByNodeId[parentNodeId].push(nodeId)
     }
 
+    if (payload.readingOrder.length > 0) {
+      this.readingOrderSourceIdsByPage[pageIndex] = payload.readingOrder
+    }
     this.readingOrderByPage[pageIndex] = {
       pageIndex,
-      nodeIds: payload.readingOrder
+      nodeIds: this.readingOrderSourceIdsByPage[pageIndex]
         .map((sourceId) => this.nodeIdsBySourceId.get(sourceId))
         .filter((nodeId): nodeId is LayoutNodeId => nodeId !== undefined),
     }
 
-    this.tableMeshesByPage[pageIndex] = payload.tables.map((table) =>
-      this.buildTableMesh(table, pageIndex, pageBounds.x, pageBounds.y),
+    this.tableMeshesByPage[pageIndex].push(
+      ...payload.tables.map((table) =>
+        this.buildTableMesh(table, pageIndex, pageBounds.x, pageBounds.y),
+      ),
     )
+    sortTableMeshesByPosition(this.tableMeshesByPage[pageIndex])
 
-    this.pageNodeRanges[pageIndex] = {
+    const range: PageNodeRange = {
       pageIndex,
       firstNodeId,
       nodeCount: this.geometry.nodeCount - firstNodeId,
     }
+    this.nodeRangesByPage[pageIndex].push(range)
     this.ingestedPageIndexes.add(pageIndex)
 
-    return { pageIndex, firstNodeId, nodeCount: this.pageNodeRanges[pageIndex].nodeCount }
+    return { ...range }
   }
 
   /** Live view of the document. The worker keeps this; the main thread gets a copy. */
@@ -181,7 +214,7 @@ export class LayoutDocumentBuilder {
       sourceNodeIds: this.sourceNodeIds,
       childIdsByNodeId: this.childIdsByNodeId,
       rootNodeIdsByPage: this.rootNodeIdsByPage,
-      pageNodeRanges: this.pageNodeRanges,
+      nodeRangesByPage: this.nodeRangesByPage,
       readingOrderByPage: this.readingOrderByPage,
       tableMeshesByPage: this.tableMeshesByPage,
     }
@@ -194,6 +227,38 @@ export class LayoutDocumentBuilder {
    */
   createGeometrySnapshot(): LayoutGeometry {
     return copyLayoutGeometry(this.geometry)
+  }
+
+  /**
+   * Packages one appended range for transfer to the main thread.
+   *
+   * Only the appended slice travels, so the cost of a stream event is proportional to the
+   * chunk rather than to how much of the document has already arrived.
+   */
+  createAppendPatch(range: PageIngestResult): DocumentAppendPatch {
+    const { firstNodeId, nodeCount, pageIndex } = range
+    const lastNodeId = firstNodeId + nodeCount
+
+    return {
+      pageIndex,
+      firstNodeId,
+      nodeCount,
+      bounds: this.geometry.bounds.slice(firstNodeId * 4, lastNodeId * 4),
+      classIds: this.geometry.classIds.slice(firstNodeId, lastNodeId),
+      pageIndexes: this.geometry.pageIndexes.slice(firstNodeId, lastNodeId),
+      parentIds: this.geometry.parentIds.slice(firstNodeId, lastNodeId),
+      confidences: this.geometry.confidences.slice(firstNodeId, lastNodeId),
+      flags: this.geometry.flags.slice(firstNodeId, lastNodeId),
+      texts: this.texts.slice(firstNodeId, lastNodeId),
+      sourceNodeIds: this.sourceNodeIds.slice(firstNodeId, lastNodeId),
+      rootNodeIds: this.rootNodeIdsByPage[pageIndex].filter(
+        (nodeId) => nodeId >= firstNodeId && nodeId < lastNodeId,
+      ),
+      readingOrderNodeIds: [...this.readingOrderByPage[pageIndex].nodeIds],
+      tableMeshes: this.tableMeshesByPage[pageIndex].filter(
+        (mesh) => mesh.tableNodeId >= firstNodeId && mesh.tableNodeId < lastNodeId,
+      ),
+    }
   }
 
   private buildTableMesh(

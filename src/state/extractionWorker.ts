@@ -1,4 +1,5 @@
 import type { LayoutDocument, LayoutNodeId } from '@/document/layoutTypes'
+import { EXTRACTION_STREAM_PATH } from '@/document/extraction/streamEvents'
 import { ExtractionWorkerClient } from './ExtractionWorkerClient'
 
 let extractionWorkerClient: ExtractionWorkerClient | null = null
@@ -47,4 +48,27 @@ export function replayGeometryIntoIndex(
     .catch((error: unknown) => {
       console.warn('Could not replay geometry into the spatial index:', error)
     })
+}
+
+export type StreamUrlOptions = {
+  pageCount: number
+  documentSeed: number
+  chunksPerPage: number
+  intervalMilliseconds: number
+}
+
+/**
+ * Absolute URL for the mock stream.
+ *
+ * The worker opens the connection itself, and `EventSource` inside a worker resolves
+ * relative URLs against the worker script — which lives under the asset directory — so
+ * the origin has to be spelled out here.
+ */
+export function buildExtractionStreamUrl(options: StreamUrlOptions): string {
+  const url = new URL(EXTRACTION_STREAM_PATH, window.location.origin)
+  url.searchParams.set('pages', String(options.pageCount))
+  url.searchParams.set('seed', String(options.documentSeed))
+  url.searchParams.set('chunks', String(options.chunksPerPage))
+  url.searchParams.set('interval', String(options.intervalMilliseconds))
+  return url.toString()
 }

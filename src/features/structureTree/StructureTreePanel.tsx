@@ -3,6 +3,7 @@ import { NODE_CLASS_STYLES } from '@/canvas/overlay/nodeClassStyles'
 import {
   NODE_FLAG_LOW_CONFIDENCE,
   NO_LAYOUT_NODE_ID,
+  getPageNodeCount,
   readNodeBounds,
   type LayoutNodeId,
 } from '@/document/layoutTypes'
@@ -238,7 +239,7 @@ export function StructureTreePanel() {
                 }
                 nodeCountOnPage={
                   row.kind === 'page'
-                    ? (layoutDocument.pageNodeRanges[row.pageIndex]?.nodeCount ?? 0)
+                    ? getPageNodeCount(layoutDocument, row.pageIndex)
                     : 0
                 }
                 onToggle={toggleRow}

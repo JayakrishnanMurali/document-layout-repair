@@ -41,10 +41,12 @@ const pageLayout = createDocumentPageLayout(PAGE_COUNT)
 
 function findNodeOnPage(pageIndex: number, className: string): number {
   const classId = getLayoutNodeClassId(className)
-  const range = layoutDocument.pageNodeRanges[pageIndex]
-  for (let nodeId = range.firstNodeId; nodeId < range.firstNodeId + range.nodeCount; nodeId += 1) {
-    if (layoutDocument.geometry.classIds[nodeId] === classId) {
-      return nodeId
+  for (const range of layoutDocument.nodeRangesByPage[pageIndex]) {
+    const lastNodeId = range.firstNodeId + range.nodeCount
+    for (let nodeId = range.firstNodeId; nodeId < lastNodeId; nodeId += 1) {
+      if (layoutDocument.geometry.classIds[nodeId] === classId) {
+        return nodeId
+      }
     }
   }
   return -1

@@ -98,7 +98,7 @@ export function getNodeArea(geometry: LayoutGeometry, nodeId: LayoutNodeId): num
   return geometry.bounds[offset + 2] * geometry.bounds[offset + 3]
 }
 
-/** Half-open range of node ids belonging to one page. */
+/** Half-open, contiguous range of node ids belonging to one page. */
 export type PageNodeRange = {
   pageIndex: number
   firstNodeId: LayoutNodeId
@@ -146,7 +146,15 @@ export type LayoutDocument = {
   sourceNodeIds: string[]
   childIdsByNodeId: LayoutNodeId[][]
   rootNodeIdsByPage: LayoutNodeId[][]
-  pageNodeRanges: PageNodeRange[]
+  /**
+   * Contiguous node id spans per page.
+   *
+   * A page arrives as one span in a batch load, but the live stream can deliver it in
+   * several chunks interleaved with other pages — so each page owns a list of spans.
+   * Culling and rectangle queries walk these spans, which is what keeps them proportional
+   * to what is on screen rather than to the size of the document.
+   */
+  nodeRangesByPage: PageNodeRange[][]
   readingOrderByPage: ReadingOrderSequence[]
   tableMeshesByPage: TableMesh[][]
 }
@@ -158,4 +166,26 @@ export function getTableCellBounds(mesh: TableMesh, cell: TableCellReference): R
   const bottom = mesh.rowEdges[Math.min(cell.rowIndex + cell.rowSpan, mesh.rowEdges.length - 1)]
 
   return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
+export function getPageNodeCount(layoutDocument: LayoutDocument, pageIndex: number): number {
+  let nodeCount = 0
+  for (const range of layoutDocument.nodeRangesByPage[pageIndex] ?? []) {
+    nodeCount += range.nodeCount
+  }
+  return nodeCount
+}
+
+/**
+ * Orders a page's table meshes by where they sit on the page.
+ *
+ * Stream chunks arrive in any order, so the arrival sequence is no basis for ordering.
+ * Sorting by position keeps a page's meshes — and therefore anything serialized from
+ * them — identical whether the document was loaded in one batch or streamed.
+ */
+export function sortTableMeshesByPosition(meshes: TableMesh[]): void {
+  meshes.sort(
+    (left, right) =>
+      left.rowEdges[0] - right.rowEdges[0] || left.columnEdges[0] - right.columnEdges[0],
+  )
 }

@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 
-export type DocumentPresetId = 'sample' | 'stressTest'
+export type DocumentPresetId = 'sample' | 'stressTest' | 'liveStream'
+
+/**
+ * How a preset's extraction reaches the workspace: in one batch, or streamed page by page
+ * as an upstream model finishes them.
+ */
+export type DocumentDeliveryMode = 'batch' | 'stream'
 
 export type DocumentPreset = {
   id: DocumentPresetId
@@ -8,6 +14,10 @@ export type DocumentPreset = {
   description: string
   pageCount: number
   documentSeed: number
+  deliveryMode: DocumentDeliveryMode
+  /** Stream only: events per page, and the gap between events. */
+  chunksPerPage: number
+  intervalMilliseconds: number
 }
 
 export const DOCUMENT_PRESETS: Record<DocumentPresetId, DocumentPreset> = {
@@ -17,6 +27,9 @@ export const DOCUMENT_PRESETS: Record<DocumentPresetId, DocumentPreset> = {
     description: '6 pages',
     pageCount: 6,
     documentSeed: 0x1a2b3c,
+    deliveryMode: 'batch',
+    chunksPerPage: 1,
+    intervalMilliseconds: 0,
   },
   stressTest: {
     id: 'stressTest',
@@ -24,6 +37,19 @@ export const DOCUMENT_PRESETS: Record<DocumentPresetId, DocumentPreset> = {
     description: '100 pages',
     pageCount: 100,
     documentSeed: 0x5eed01,
+    deliveryMode: 'batch',
+    chunksPerPage: 1,
+    intervalMilliseconds: 0,
+  },
+  liveStream: {
+    id: 'liveStream',
+    label: 'Live extraction',
+    description: '40 pages, streamed',
+    pageCount: 40,
+    documentSeed: 0x57ea,
+    deliveryMode: 'stream',
+    chunksPerPage: 3,
+    intervalMilliseconds: 35,
   },
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Rect } from '@/canvas/geometry'
 import { LayoutDocumentBuilder } from '@/document/extraction/LayoutDocumentBuilder'
 import { buildPageExtractionPayload } from '@/document/extraction/payloadBuilder'
+import { getPageNodeCount } from '@/document/layoutTypes'
 import { generateSyntheticPageContent } from '@/document/synthetic/pageContentGenerator'
 import {
   collectSnapCandidates,
@@ -165,11 +166,11 @@ describe('collectSnapCandidates', () => {
   const layoutDocument = builder.getDocument()
 
   it('produces two sorted vertical and horizontal edges per box on the page', () => {
-    const range = layoutDocument.pageNodeRanges[0]
+    const pageNodeCount = getPageNodeCount(layoutDocument, 0)
     const candidates = collectSnapCandidates(layoutDocument, 0, new Set())
 
-    expect(candidates.verticalEdges.count).toBe(range.nodeCount * 2)
-    expect(candidates.horizontalEdges.count).toBe(range.nodeCount * 2)
+    expect(candidates.verticalEdges.count).toBe(pageNodeCount * 2)
+    expect(candidates.horizontalEdges.count).toBe(pageNodeCount * 2)
 
     for (let index = 1; index < candidates.verticalEdges.count; index += 1) {
       expect(candidates.verticalEdges.positions[index]).toBeGreaterThanOrEqual(
@@ -179,11 +180,11 @@ describe('collectSnapCandidates', () => {
   })
 
   it('excludes the boxes being dragged so a box cannot snap to itself', () => {
-    const range = layoutDocument.pageNodeRanges[0]
+    const [range] = layoutDocument.nodeRangesByPage[0]
     const excluded = new Set([range.firstNodeId, range.firstNodeId + 1])
     const candidates = collectSnapCandidates(layoutDocument, 0, excluded)
 
-    expect(candidates.verticalEdges.count).toBe((range.nodeCount - 2) * 2)
+    expect(candidates.verticalEdges.count).toBe((getPageNodeCount(layoutDocument, 0) - 2) * 2)
   })
 
   it('only considers the requested page', () => {

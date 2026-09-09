@@ -22,6 +22,7 @@ import { useDocumentStore } from '@/state/documentStore'
 import { layoutEditor } from '@/state/editorStore'
 import { registerViewportCommands } from '@/state/viewportCommands'
 import { useWorkspaceStore } from '@/state/workspaceStore'
+import { StreamPanel } from '@/features/stream/StreamPanel'
 import { ViewportStatisticsOverlay } from './ViewportStatisticsOverlay'
 import styles from './CanvasViewport.module.css'
 
@@ -292,6 +293,7 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
         zoomScale={zoomScale}
         cameraOrigin={cameraOrigin}
       />
+      <StreamPanel />
     </div>
   )
 }

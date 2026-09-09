@@ -15,7 +15,7 @@ import {
 } from '@/state/workspaceStore'
 import styles from './App.module.css'
 
-const PRESET_ORDER: DocumentPresetId[] = ['sample', 'stressTest']
+const PRESET_ORDER: DocumentPresetId[] = ['sample', 'stressTest', 'liveStream']
 
 export function App() {
   const activePreset = useActiveDocumentPreset()

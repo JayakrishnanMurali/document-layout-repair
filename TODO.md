@@ -140,13 +140,24 @@ handles, snap guides and labels. All three share one camera transform.
 
 ## Phase 8 — Live streaming ingestion (Module C)
 
-- [ ] SSE mock endpoint served by a Vite dev/preview middleware plugin
-- [ ] In-app fallback stream generator for static hosting
-- [ ] Out-of-order page extraction events with partial payloads
-- [ ] Worker-side reconciliation buffer, no main-thread parsing
-- [ ] Live partial page rendering without dropping frames
-- [ ] Stream control panel: connect/disconnect, throughput, event log
-- [ ] Long-task budget check (< 16ms) during ingestion
+- [x] SSE mock endpoint served by a Vite plugin, in both `dev` and `preview`
+- [x] In-app fallback stream generator for static hosting
+- [x] Out-of-order page extraction events with partial payloads
+- [x] The worker owns the `EventSource`, so payload bytes never reach the main thread
+- [x] Worker-side reconciliation: chunks buffered until the document is sized, whole
+      blocks per chunk so no chunk depends on another, reading order recovered from the
+      order the model stated rather than the order chunks arrived
+- [x] Pages appear as they arrive; each page owns a list of contiguous node spans, so
+      chunks from different pages can interleave without breaking culling
+- [x] Appends extend the document in place, so a stream update cannot reset selection
+      or invalidate an edit already in the undo stack
+- [x] Stream control panel: connect/disconnect, throughput, event log
+- [x] Long-task budget measured live with `PerformanceObserver`, windowed to the run:
+      zero long tasks on a GPU-backed browser, worst worker event 0.3–0.5ms
+- [x] Unit tests: chunk splitting invariants, arrival-order independence, and that a
+      shuffled stream reconstructs exactly the document a batch load produces
+- [x] Playwright coverage: SSE ingestion, out-of-order log, disconnect/reconnect,
+      editing mid-stream, and the in-worker fallback with the endpoint blocked
 
 ## Phase 9 — Verification, docs, polish
 

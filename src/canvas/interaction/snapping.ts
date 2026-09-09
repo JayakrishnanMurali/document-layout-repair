@@ -83,8 +83,8 @@ export function collectSnapCandidates(
   pageIndex: number,
   excludedNodeIds: ReadonlySet<LayoutNodeId>,
 ): SnapCandidates {
-  const range = layoutDocument.pageNodeRanges[pageIndex]
-  if (!range || range.nodeCount === 0) {
+  const ranges = layoutDocument.nodeRangesByPage[pageIndex] ?? []
+  if (ranges.length === 0) {
     return EMPTY_SNAP_CANDIDATES
   }
 
@@ -96,25 +96,27 @@ export function collectSnapCandidates(
   const horizontalSpanStarts: number[] = []
   const horizontalSpanEnds: number[] = []
 
-  const lastNodeId = range.firstNodeId + range.nodeCount
-  for (let nodeId = range.firstNodeId; nodeId < lastNodeId; nodeId += 1) {
-    if (excludedNodeIds.has(nodeId) || (geometry.flags[nodeId] & NODE_FLAG_REMOVED) !== 0) {
-      continue
+  for (const range of ranges) {
+    const lastNodeId = range.firstNodeId + range.nodeCount
+    for (let nodeId = range.firstNodeId; nodeId < lastNodeId; nodeId += 1) {
+      if (excludedNodeIds.has(nodeId) || (geometry.flags[nodeId] & NODE_FLAG_REMOVED) !== 0) {
+        continue
+      }
+
+      const offset = nodeId * 4
+      const left = geometry.bounds[offset]
+      const top = geometry.bounds[offset + 1]
+      const right = left + geometry.bounds[offset + 2]
+      const bottom = top + geometry.bounds[offset + 3]
+
+      verticalPositions.push(left, right)
+      verticalSpanStarts.push(top, top)
+      verticalSpanEnds.push(bottom, bottom)
+
+      horizontalPositions.push(top, bottom)
+      horizontalSpanStarts.push(left, left)
+      horizontalSpanEnds.push(right, right)
     }
-
-    const offset = nodeId * 4
-    const left = geometry.bounds[offset]
-    const top = geometry.bounds[offset + 1]
-    const right = left + geometry.bounds[offset + 2]
-    const bottom = top + geometry.bounds[offset + 3]
-
-    verticalPositions.push(left, right)
-    verticalSpanStarts.push(top, top)
-    verticalSpanEnds.push(bottom, bottom)
-
-    horizontalPositions.push(top, bottom)
-    horizontalSpanStarts.push(left, left)
-    horizontalSpanEnds.push(right, right)
   }
 
   return {

@@ -74,6 +74,18 @@ export class LayoutEditor {
     return this.layoutDocument
   }
 
+  /**
+   * Announces that the live stream appended nodes to the document already in place.
+   *
+   * The document object identity is deliberately unchanged, so selection and the undo
+   * stack survive: a stream update extends the document rather than replacing it, and
+   * cannot invalidate an edit the reviewer has already made.
+   */
+  notifyDocumentAppended(): void {
+    this.notify('geometry')
+    this.notify('history')
+  }
+
   getInteractionState(): InteractionState {
     return this.interactionState
   }

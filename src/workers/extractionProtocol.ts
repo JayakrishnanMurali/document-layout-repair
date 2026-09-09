@@ -1,5 +1,6 @@
-import type { LayoutDocument, LayoutNodeId } from '@/document/layoutTypes'
+import type { DocumentAppendPatch } from '@/document/extraction/documentAppend'
 import type { PageExtractionPayload } from '@/document/extraction/extractionPayload'
+import type { LayoutDocument, LayoutNodeId } from '@/document/layoutTypes'
 
 export type ExtractionTimings = {
   generateMilliseconds: number
@@ -25,7 +26,36 @@ export type ExtractionWorkerRequest =
       nextBounds: Float32Array
       nextFlags: Uint8Array
     }
+  /**
+   * Opens the live extraction stream inside the worker.
+   *
+   * The worker owns the connection so the payload bytes never reach the main thread: they
+   * are parsed, reconciled and indexed here, and only the resulting dense buffers cross
+   * the boundary.
+   */
+  | {
+      kind: 'startStream'
+      requestId: number
+      source: ExtractionStreamSource
+      streamUrl: string
+      pageCount: number
+      documentSeed: number
+      chunksPerPage: number
+      intervalMilliseconds: number
+    }
+  | { kind: 'stopStream'; requestId: number }
   | { kind: 'reset' }
+
+export type ExtractionStreamSource = 'sse' | 'simulated'
+
+export type ExtractionStreamStatistics = {
+  eventCount: number
+  ingestedPageCount: number
+  nodeCount: number
+  /** Time the worker spent parsing and indexing the last event. */
+  lastEventMilliseconds: number
+  worstEventMilliseconds: number
+}
 
 export type ExtractionWorkerResponse =
   | {
@@ -56,6 +86,21 @@ export type ExtractionWorkerResponse =
       queryMilliseconds: number
     }
   | { kind: 'geometryPatched'; requestId: number; reindexMilliseconds: number }
+  | {
+      kind: 'streamStarted'
+      requestId: number
+      source: ExtractionStreamSource
+      pageCount: number
+      documentSeed: number
+    }
+  | {
+      kind: 'nodesAppended'
+      requestId: number
+      patch: DocumentAppendPatch
+      statistics: ExtractionStreamStatistics
+    }
+  | { kind: 'streamCompleted'; requestId: number; statistics: ExtractionStreamStatistics }
+  | { kind: 'streamFailed'; requestId: number; reason: string }
   | { kind: 'workerFailed'; requestId: number; reason: string }
 
 /** Transfer list for a `documentReady` response: the geometry buffers move, not copy. */

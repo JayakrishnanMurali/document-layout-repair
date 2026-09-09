@@ -1,5 +1,5 @@
-import type { Rect } from '@/canvas/geometry'
-import { getPageContentBounds } from '@/document/pageLayout'
+import type { Rect } from '../../canvas/geometry'
+import { getPageContentBounds } from '../pageLayout'
 import {
   estimateTextWidth,
   makeDocumentTitle,
