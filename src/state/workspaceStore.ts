@@ -27,8 +27,19 @@ export const DOCUMENT_PRESETS: Record<DocumentPresetId, DocumentPreset> = {
   },
 }
 
+export const WORKSPACE_TOOLS = ['select', 'readingOrder'] as const
+
+export type WorkspaceToolId = (typeof WORKSPACE_TOOLS)[number]
+
+export const WORKSPACE_TOOL_LABELS: Record<WorkspaceToolId, string> = {
+  select: 'Select & edit',
+  readingOrder: 'Reading order',
+}
+
 export type WorkspaceState = {
   activePresetId: DocumentPresetId
+  /** Structural tools take over the pointer, so only one can be active at a time. */
+  activeToolId: WorkspaceToolId
   /**
    * Viewport culling is on in normal use. Turning it off submits every box in the
    * document each frame, which is how the renderer's instance throughput is measured
@@ -36,13 +47,16 @@ export type WorkspaceState = {
    */
   isViewportCullingEnabled: boolean
   loadPreset: (presetId: DocumentPresetId) => void
+  setActiveTool: (toolId: WorkspaceToolId) => void
   setViewportCullingEnabled: (isEnabled: boolean) => void
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   activePresetId: 'sample',
+  activeToolId: 'select',
   isViewportCullingEnabled: true,
   loadPreset: (presetId) => set({ activePresetId: presetId }),
+  setActiveTool: (toolId) => set({ activeToolId: toolId }),
   setViewportCullingEnabled: (isEnabled) => set({ isViewportCullingEnabled: isEnabled }),
 }))
 

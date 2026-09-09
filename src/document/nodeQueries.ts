@@ -1,7 +1,12 @@
-import { rectContainsRect, rectsIntersect, type Rect } from '@/canvas/geometry'
-import { collectVisiblePageIndexes, type DocumentPageLayout } from '@/document/pageLayout'
+import { rectContainsPoint, rectContainsRect, rectsIntersect, type Point, type Rect } from '@/canvas/geometry'
+import {
+  collectVisiblePageIndexes,
+  getPageIndexAtWorldPoint,
+  type DocumentPageLayout,
+} from '@/document/pageLayout'
 import {
   NODE_FLAG_REMOVED,
+  NO_LAYOUT_NODE_ID,
   readNodeBounds,
   type LayoutDocument,
   type LayoutNodeId,
@@ -79,4 +84,47 @@ export function collectSubtreeNodeIds(
   }
 
   return results
+}
+
+/**
+ * Block-level node under a world point, resolved on the main thread.
+ *
+ * The worker's quadtree answers "the most specific box", which is a line or a cell — but
+ * the reading-order tool links whole blocks. A page holds a couple of dozen blocks, so
+ * scanning them is both exact and synchronous, which is what a drag needs.
+ */
+export function findBlockNodeAtWorldPoint(
+  layoutDocument: LayoutDocument,
+  pageLayout: DocumentPageLayout,
+  worldPoint: Point,
+): LayoutNodeId {
+  const pageIndex = getPageIndexAtWorldPoint(pageLayout, worldPoint)
+  if (pageIndex < 0) {
+    return NO_LAYOUT_NODE_ID
+  }
+
+  const blockNodeIds =
+    layoutDocument.readingOrderByPage[pageIndex]?.nodeIds ??
+    layoutDocument.rootNodeIdsByPage[pageIndex] ??
+    []
+
+  let bestNodeId = NO_LAYOUT_NODE_ID
+  let smallestArea = Number.POSITIVE_INFINITY
+
+  for (const nodeId of blockNodeIds) {
+    if ((layoutDocument.geometry.flags[nodeId] & NODE_FLAG_REMOVED) !== 0) {
+      continue
+    }
+    const nodeBounds = readNodeBounds(layoutDocument.geometry, nodeId, boundsScratch)
+    if (!rectContainsPoint(nodeBounds, worldPoint)) {
+      continue
+    }
+    const area = nodeBounds.width * nodeBounds.height
+    if (area < smallestArea) {
+      smallestArea = area
+      bestNodeId = nodeId
+    }
+  }
+
+  return bestNodeId
 }

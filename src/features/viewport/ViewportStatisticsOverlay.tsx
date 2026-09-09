@@ -11,6 +11,8 @@ export type ViewportStatisticsOverlayProps = {
   overlayStatistics: OverlayBoxLayerStatistics | null
   rasterStatistics: PageRasterLayerStatistics | null
   zoomScale: number
+  /** World coordinate at the viewport's top-left corner. */
+  cameraOrigin: { worldX: number; worldY: number }
 }
 
 export function ViewportStatisticsOverlay({
@@ -18,6 +20,7 @@ export function ViewportStatisticsOverlay({
   overlayStatistics,
   rasterStatistics,
   zoomScale,
+  cameraOrigin,
 }: ViewportStatisticsOverlayProps) {
   const isWithinFrameBudget =
     frameStatistics.ninetyFifthPercentileFrameMilliseconds <= FRAME_BUDGET_MILLISECONDS
@@ -41,6 +44,11 @@ export function ViewportStatisticsOverlay({
       <span className={styles.label}>zoom</span>
       <span className={styles.value} data-testid="zoom-readout">
         {Math.round(zoomScale * 100)}%
+      </span>
+
+      <span className={styles.label}>origin</span>
+      <span className={styles.value} data-testid="camera-origin">
+        {cameraOrigin.worldX.toFixed(1)}, {cameraOrigin.worldY.toFixed(1)}
       </span>
 
       {overlayStatistics && (

@@ -3,6 +3,15 @@ import type { LayoutNodeId } from '@/document/layoutTypes'
 import type { BoxHandleId } from './boxHandles'
 import type { SnapGuide } from './snapping'
 
+/** A reading-order link being dragged from one block towards another. */
+export type PendingReadingOrderLink = {
+  fromNodeId: LayoutNodeId
+  pointerWorldX: number
+  pointerWorldY: number
+  /** Block under the pointer that would become the next one in reading order. */
+  candidateNodeId: LayoutNodeId
+}
+
 /**
  * Everything the interaction layer paints on top of the document.
  *
@@ -17,6 +26,7 @@ export type InteractionState = {
   snapGuides: SnapGuide[]
   /** Marquee rectangle in world units, while a rubber-band selection is in progress. */
   marqueeWorldRect: Rect | null
+  pendingReadingOrderLink: PendingReadingOrderLink | null
 }
 
 export function createInteractionState(): InteractionState {
@@ -26,5 +36,6 @@ export function createInteractionState(): InteractionState {
     activeHandleId: null,
     snapGuides: [],
     marqueeWorldRect: null,
+    pendingReadingOrderLink: null,
   }
 }

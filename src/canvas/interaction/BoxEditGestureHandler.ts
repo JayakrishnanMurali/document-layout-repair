@@ -48,6 +48,8 @@ type ActiveGesture = MoveGesture | ResizeGesture
 export type BoxEditGestureHandlerOptions = {
   editor: LayoutEditor
   getPageLayout: () => DocumentPageLayout
+  /** False while a structural tool owns the pointer, so tools cannot fight over a drag. */
+  getIsEnabled: () => boolean
 }
 
 /**
@@ -62,15 +64,17 @@ export class BoxEditGestureHandler implements PointerGestureHandler {
 
   private readonly editor: LayoutEditor
   private readonly getPageLayout: () => DocumentPageLayout
+  private readonly getIsEnabled: () => boolean
   private activeGesture: ActiveGesture | null = null
 
   constructor(options: BoxEditGestureHandlerOptions) {
     this.editor = options.editor
     this.getPageLayout = options.getPageLayout
+    this.getIsEnabled = options.getIsEnabled
   }
 
   onPointerDown(event: PointerEvent, context: PointerGestureContext): boolean {
-    if (event.shiftKey) {
+    if (event.shiftKey || !this.getIsEnabled()) {
       return false
     }
 
@@ -140,6 +144,10 @@ export class BoxEditGestureHandler implements PointerGestureHandler {
   }
 
   getCursor(context: PointerGestureContext): string | null {
+    if (!this.getIsEnabled()) {
+      return null
+    }
+
     const primaryNodeId = this.editor.primarySelectedNodeId
     if (primaryNodeId < 0) {
       return null

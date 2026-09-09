@@ -72,7 +72,8 @@ test.describe('structure tree', () => {
     // painted-pixel count is a direct read on whether the hover reached the canvas.
     const countPaintedPixels = () =>
       page.evaluate((selector) => {
-        const canvas = document.querySelectorAll<HTMLCanvasElement>(`${selector} canvas`)[2]
+        const canvases = document.querySelectorAll<HTMLCanvasElement>(`${selector} canvas`)
+        const canvas = canvases[canvases.length - 1]
         const context = canvas?.getContext('2d')
         if (!canvas || !context) {
           throw new Error('Interaction canvas is unavailable')

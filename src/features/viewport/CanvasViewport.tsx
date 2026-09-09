@@ -3,9 +3,11 @@ import type { FrameStatisticsSnapshot } from '@/canvas/FrameStatistics'
 import { ViewportInputController } from '@/canvas/input/ViewportInputController'
 import { BoxEditGestureHandler } from '@/canvas/interaction/BoxEditGestureHandler'
 import { MarqueeSelectGestureHandler } from '@/canvas/interaction/MarqueeSelectGestureHandler'
+import { ReadingOrderGestureHandler } from '@/canvas/interaction/ReadingOrderGestureHandler'
 import { InteractionLayer } from '@/canvas/layers/InteractionLayer'
 import { OverlayBoxLayer, type OverlayBoxLayerStatistics } from '@/canvas/layers/OverlayBoxLayer'
 import { PageRasterLayer, type PageRasterLayerStatistics } from '@/canvas/layers/PageRasterLayer'
+import { ReadingOrderLayer } from '@/canvas/layers/ReadingOrderLayer'
 import { ViewportRenderEngine } from '@/canvas/ViewportRenderEngine'
 import { clampZoomScale, fitWorldRectInViewport } from '@/canvas/viewport/camera'
 import type { Rect } from '@/canvas/geometry'
@@ -42,6 +44,7 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
   const [overlayStatistics, setOverlayStatistics] = useState<OverlayBoxLayerStatistics | null>(null)
   const [rasterStatistics, setRasterStatistics] = useState<PageRasterLayerStatistics | null>(null)
   const [zoomScale, setZoomScale] = useState(1)
+  const [cameraOrigin, setCameraOrigin] = useState({ worldX: 0, worldY: 0 })
 
   useEffect(() => {
     const container = containerRef.current
@@ -53,7 +56,10 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
       container,
       pageCount,
       onStatistics: setFrameStatistics,
-      onCameraChange: (camera) => setZoomScale(camera.scale),
+      onCameraChange: (camera) => {
+        setZoomScale(camera.scale)
+        setCameraOrigin({ worldX: camera.worldX, worldY: camera.worldY })
+      },
     })
 
     const pageRasterLayer = new PageRasterLayer(engine.createLayerCanvas(), documentSeed, () =>
@@ -69,6 +75,16 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
     })
     engine.addLayer(overlayBoxLayer)
 
+    const isReadingOrderToolActive = () =>
+      useWorkspaceStore.getState().activeToolId === 'readingOrder'
+
+    const readingOrderLayer = new ReadingOrderLayer(
+      engine.createLayerCanvas(),
+      () => layoutEditor.getDocument(),
+      isReadingOrderToolActive,
+    )
+    engine.addLayer(readingOrderLayer)
+
     const interactionLayer = new InteractionLayer(
       engine.createLayerCanvas(),
       () => layoutEditor.getDocument(),
@@ -82,17 +98,23 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
       if (changeKind === 'geometry' || changeKind === 'document') {
         overlayBoxLayer.invalidateDocument()
         engine.markDirty(overlayBoxLayer.name)
+        engine.markDirty(readingOrderLayer.name)
       }
       engine.markDirty(interactionLayer.name)
     })
 
     let lastSeenCullingSetting = useWorkspaceStore.getState().isViewportCullingEnabled
+    let lastSeenToolId = useWorkspaceStore.getState().activeToolId
     const unsubscribeFromWorkspace = useWorkspaceStore.subscribe((state) => {
-      if (state.isViewportCullingEnabled === lastSeenCullingSetting) {
-        return
+      if (state.isViewportCullingEnabled !== lastSeenCullingSetting) {
+        lastSeenCullingSetting = state.isViewportCullingEnabled
+        engine.markDirty(overlayBoxLayer.name)
       }
-      lastSeenCullingSetting = state.isViewportCullingEnabled
-      engine.markDirty(overlayBoxLayer.name)
+      if (state.activeToolId !== lastSeenToolId) {
+        lastSeenToolId = state.activeToolId
+        engine.markDirty(readingOrderLayer.name)
+        engine.markDirty(interactionLayer.name)
+      }
     })
 
     const selectAtWorldPoint = async (
@@ -127,7 +149,16 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
       element: container,
       engine,
       gestureHandlers: [
-        new BoxEditGestureHandler({ editor: layoutEditor, getPageLayout: () => engine.getPageLayout() }),
+        new ReadingOrderGestureHandler({
+          editor: layoutEditor,
+          getPageLayout: () => engine.getPageLayout(),
+          getIsActive: isReadingOrderToolActive,
+        }),
+        new BoxEditGestureHandler({
+          editor: layoutEditor,
+          getPageLayout: () => engine.getPageLayout(),
+          getIsEnabled: () => useWorkspaceStore.getState().activeToolId === 'select',
+        }),
         new MarqueeSelectGestureHandler({
           editor: layoutEditor,
           getPageLayout: () => engine.getPageLayout(),
@@ -196,6 +227,10 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
       ),
     )
     setZoomScale(engine.getCamera().scale)
+    setCameraOrigin({
+      worldX: engine.getCamera().worldX,
+      worldY: engine.getCamera().worldY,
+    })
 
     const layerStatisticsInterval = window.setInterval(() => {
       setOverlayStatistics(overlayBoxLayer.statistics)
@@ -220,6 +255,7 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
         overlayStatistics={overlayStatistics}
         rasterStatistics={rasterStatistics}
         zoomScale={zoomScale}
+        cameraOrigin={cameraOrigin}
       />
     </div>
   )

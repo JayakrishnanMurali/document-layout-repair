@@ -3,6 +3,7 @@ import type { BoxHandleId } from '@/canvas/interaction/boxHandles'
 import {
   createInteractionState,
   type InteractionState,
+  type PendingReadingOrderLink,
 } from '@/canvas/interaction/interactionTypes'
 import type { SnapGuide } from '@/canvas/interaction/snapping'
 import {
@@ -64,6 +65,7 @@ export class LayoutEditor {
     this.interactionState.snapGuides = []
     this.interactionState.activeHandleId = null
     this.interactionState.marqueeWorldRect = null
+    this.interactionState.pendingReadingOrderLink = null
 
     this.notify('document')
   }
@@ -163,6 +165,14 @@ export class LayoutEditor {
     this.notify('interaction')
   }
 
+  setPendingReadingOrderLink(link: PendingReadingOrderLink | null): void {
+    if (this.interactionState.pendingReadingOrderLink === null && link === null) {
+      return
+    }
+    this.interactionState.pendingReadingOrderLink = link
+    this.notify('interaction')
+  }
+
   setMarqueeWorldRect(rect: Rect | null): void {
     if (this.interactionState.marqueeWorldRect === null && rect === null) {
       return
@@ -212,6 +222,7 @@ export class LayoutEditor {
     const transaction = this.transactionStack?.commitGesture()
     this.interactionState.snapGuides = []
     this.interactionState.activeHandleId = null
+    this.interactionState.pendingReadingOrderLink = null
     this.afterTransaction(transaction)
   }
 
@@ -219,6 +230,7 @@ export class LayoutEditor {
     const transaction = this.transactionStack?.abortGesture()
     this.interactionState.snapGuides = []
     this.interactionState.activeHandleId = null
+    this.interactionState.pendingReadingOrderLink = null
     if (transaction && this.layoutDocument) {
       this.reindexNodes(transaction.affectedNodeIds, this.layoutDocument)
     }

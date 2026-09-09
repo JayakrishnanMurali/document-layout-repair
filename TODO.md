@@ -100,11 +100,18 @@ handles, snap guides and labels. All three share one camera transform.
 
 ## Phase 6 — Reading-order graph tool (Module B)
 
-- [ ] Directed reading-order edges rendered as arrows between blocks
-- [ ] Sequence badges (1 → 2 → 3) with LOD
-- [ ] Drag a connection handle to re-parent a linkage
-- [ ] Cycle prevention and order renumbering as a single transaction
-- [ ] Edge culling against the visible world rect
+- [x] Directed reading-order edges rendered as arrows between blocks
+- [x] Sequence badges (1 → 2 → 3) with LOD
+- [x] Drag a connection handle to re-parent a linkage
+- [x] Cycles are unrepresentable: order is stored as a per-page sequence, so every
+      operation is a permutation and numbering is just array position
+- [x] Re-link commits as one transaction; undo restores the previous order
+- [x] Tool modes, so the reading-order tool and box editing never fight over a drag
+- [x] Unit tests: sequence moves, permutation invariant, geometry-derived order,
+      arrow trimming against both blocks
+- [x] Playwright coverage: graph visibility per tool, re-link by drag, drop on empty
+      paper, box editing left to the select tool
+- [x] Edge culling against the visible world rect
 
 ## Phase 7 — Table grid mesh corrector (Module B)
 

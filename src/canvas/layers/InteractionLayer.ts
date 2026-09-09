@@ -6,6 +6,7 @@ import {
   getHandleWorldPosition,
 } from '@/canvas/interaction/boxHandles'
 import type { InteractionState } from '@/canvas/interaction/interactionTypes'
+import { getConnectorWorldPosition } from '@/canvas/layers/ReadingOrderLayer'
 import { HOVER_COLOR, SELECTION_COLOR } from '@/canvas/overlay/nodeClassStyles'
 import type { CanvasBackingSize, RenderFrame, RenderLayer } from '@/canvas/renderTypes'
 import {
@@ -22,6 +23,9 @@ const SNAP_GUIDE_COLOR = 'rgba(255, 92, 179, 0.95)'
 const SNAP_GUIDE_DASH_IN_SCREEN_PIXELS = [5, 4]
 const MARQUEE_STROKE_COLOR = 'rgba(130, 182, 255, 0.9)'
 const MARQUEE_FILL_COLOR = 'rgba(76, 154, 255, 0.12)'
+const READING_ORDER_LINK_COLOR = 'rgba(34, 211, 238, 0.95)'
+const READING_ORDER_CANDIDATE_COLOR = 'rgba(34, 211, 238, 0.95)'
+const READING_ORDER_LINK_WIDTH_IN_SCREEN_PIXELS = 2
 const LABEL_FONT_SIZE_IN_SCREEN_PIXELS = 11
 const LABEL_PADDING_IN_SCREEN_PIXELS = 5
 const LABEL_GAP_IN_SCREEN_PIXELS = 6
@@ -112,6 +116,7 @@ export class InteractionLayer implements RenderLayer {
 
     this.drawSnapGuides(state, frame, devicePixelsPerWorldUnit)
     this.drawMarquee(state, frame, devicePixelsPerWorldUnit)
+    this.drawPendingReadingOrderLink(layoutDocument, state, frame, devicePixelsPerWorldUnit)
 
     const primaryNodeId = state.selectedNodeIds[state.selectedNodeIds.length - 1]
     if (primaryNodeId !== undefined) {
@@ -273,6 +278,62 @@ export class InteractionLayer implements RenderLayer {
     context.setLineDash([4 * frame.devicePixelRatio, 3 * frame.devicePixelRatio])
     context.strokeRect(deviceX, deviceY, deviceWidth, deviceHeight)
     context.restore()
+  }
+
+  /**
+   * The rubber band drawn while a reading-order link is being dragged, plus a highlight
+   * on the block that would become the next one in the sequence.
+   */
+  private drawPendingReadingOrderLink(
+    layoutDocument: LayoutDocument,
+    state: InteractionState,
+    frame: RenderFrame,
+    devicePixelsPerWorldUnit: number,
+  ): void {
+    const link = state.pendingReadingOrderLink
+    if (!link) {
+      return
+    }
+
+    const { context } = this
+    const sourceBounds = readNodeBounds(
+      layoutDocument.geometry,
+      link.fromNodeId,
+      this.boundsScratch,
+    )
+    const connector = getConnectorWorldPosition(sourceBounds)
+
+    const startX = (connector.x - frame.camera.worldX) * devicePixelsPerWorldUnit
+    const startY = (connector.y - frame.camera.worldY) * devicePixelsPerWorldUnit
+    const endX = (link.pointerWorldX - frame.camera.worldX) * devicePixelsPerWorldUnit
+    const endY = (link.pointerWorldY - frame.camera.worldY) * devicePixelsPerWorldUnit
+
+    context.save()
+    context.lineWidth = READING_ORDER_LINK_WIDTH_IN_SCREEN_PIXELS * frame.devicePixelRatio
+    context.strokeStyle = READING_ORDER_LINK_COLOR
+    context.setLineDash([6 * frame.devicePixelRatio, 4 * frame.devicePixelRatio])
+    context.beginPath()
+    context.moveTo(startX, startY)
+    context.lineTo(endX, endY)
+    context.stroke()
+
+    context.setLineDash([])
+    context.beginPath()
+    context.arc(endX, endY, 3.5 * frame.devicePixelRatio, 0, Math.PI * 2)
+    context.fillStyle = READING_ORDER_LINK_COLOR
+    context.fill()
+    context.restore()
+
+    if (link.candidateNodeId >= 0) {
+      this.strokeNodeOutline(
+        layoutDocument,
+        link.candidateNodeId,
+        frame,
+        devicePixelsPerWorldUnit,
+        READING_ORDER_CANDIDATE_COLOR,
+        READING_ORDER_LINK_WIDTH_IN_SCREEN_PIXELS + 1,
+      )
+    }
   }
 
   private drawNodeLabel(

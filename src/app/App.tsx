@@ -7,6 +7,8 @@ import { useDocumentStore } from '@/state/documentStore'
 import { layoutEditor, useEditorStore } from '@/state/editorStore'
 import {
   DOCUMENT_PRESETS,
+  WORKSPACE_TOOLS,
+  WORKSPACE_TOOL_LABELS,
   useActiveDocumentPreset,
   useWorkspaceStore,
   type DocumentPresetId,
@@ -21,6 +23,8 @@ export function App() {
   const loadDocumentPreset = useDocumentStore((state) => state.loadPreset)
   const isViewportCullingEnabled = useWorkspaceStore((state) => state.isViewportCullingEnabled)
   const setViewportCullingEnabled = useWorkspaceStore((state) => state.setViewportCullingEnabled)
+  const activeToolId = useWorkspaceStore((state) => state.activeToolId)
+  const setActiveTool = useWorkspaceStore((state) => state.setActiveTool)
   const canUndo = useEditorStore((state) => state.canUndo)
   const canRedo = useEditorStore((state) => state.canRedo)
   const nextUndoLabel = useEditorStore((state) => state.nextUndoLabel)
@@ -49,6 +53,23 @@ export function App() {
               >
                 {preset.label}
                 <span className={styles.segmentDetail}>{preset.description}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className={styles.segmentedControl} role="group" aria-label="Active tool">
+          {WORKSPACE_TOOLS.map((toolId) => {
+            const isActive = toolId === activeToolId
+            return (
+              <button
+                key={toolId}
+                type="button"
+                className={isActive ? styles.segmentActive : styles.segment}
+                aria-pressed={isActive}
+                onClick={() => setActiveTool(toolId)}
+              >
+                {WORKSPACE_TOOL_LABELS[toolId]}
               </button>
             )
           })}
