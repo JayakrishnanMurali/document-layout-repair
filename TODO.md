@@ -68,16 +68,21 @@ handles, snap guides and labels. All three share one camera transform.
 
 ## Phase 4 — Transactional state & bounding box editor (Modules B, D)
 
-- [ ] Document store: pages, nodes, reading order, tables
-- [ ] Command/patch transaction engine with inverse patches
-- [ ] Undo/redo stack, minimum 50 levels, drag gestures coalesced into one transaction
-- [ ] Keyboard bindings (Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z)
-- [ ] Selection model (single, additive, marquee)
-- [ ] Box move + 8-handle resize with pixel-perfect hit slop
-- [ ] Re-label a box (class picker)
-- [ ] Snapping: edges snap to nearby block edges with visible guide lines
-- [ ] Mutations replayed into the worker index; stream updates never corrupt local edits
-- [ ] Unit tests: inverse correctness, 50+ undo depth, snap solver
+- [x] Document store: pages, nodes, reading order, tables
+- [x] Command/patch transaction engine with inverse patches
+- [x] Undo/redo stack, minimum 50 levels, drag gestures coalesced into one transaction
+- [x] Keyboard bindings (Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z)
+- [x] Selection model (single, additive, marquee)
+- [x] Box move + 8-handle resize with a zoom-independent grab radius
+- [x] Handles gated by on-screen size, so small boxes stay draggable rather than
+      being swallowed by their own handles
+- [x] Re-label a box (class picker)
+- [x] Snapping: edges snap to nearby block edges, with guides drawn between the two
+      boxes they align
+- [x] Mutations replayed into the worker index; stream updates never corrupt local edits
+- [x] Unit tests: inverse correctness, randomized undo round-trip, 50+ depth, snap
+      solver vs. linear scan, handle hit-testing
+- [x] Playwright coverage: drag/undo/redo, gesture coalescing, re-label, marquee
 
 ## Phase 5 — Tree view & bi-directional grounding (Module D)
 

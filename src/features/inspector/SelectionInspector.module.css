@@ -1,0 +1,105 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-weight: 600;
+}
+
+.emptyState {
+  padding: 16px 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.section {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sectionTitle {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.fieldLabel {
+  color: var(--text-muted);
+}
+
+.fieldValue {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.lowConfidence {
+  color: var(--danger);
+}
+
+.text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  max-height: 140px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.classGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.classChip,
+.classChipActive {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-base);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.classChip:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.classChipActive {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent-strong);
+}
+
+.classSwatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}

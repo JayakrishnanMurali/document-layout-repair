@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FrameStatisticsSnapshot } from '@/canvas/FrameStatistics'
 import { ViewportInputController } from '@/canvas/input/ViewportInputController'
+import { BoxEditGestureHandler } from '@/canvas/interaction/BoxEditGestureHandler'
+import { MarqueeSelectGestureHandler } from '@/canvas/interaction/MarqueeSelectGestureHandler'
+import { InteractionLayer } from '@/canvas/layers/InteractionLayer'
 import { OverlayBoxLayer, type OverlayBoxLayerStatistics } from '@/canvas/layers/OverlayBoxLayer'
 import { PageRasterLayer, type PageRasterLayerStatistics } from '@/canvas/layers/PageRasterLayer'
 import { ViewportRenderEngine } from '@/canvas/ViewportRenderEngine'
 import { fitWorldRectInViewport } from '@/canvas/viewport/camera'
+import { NO_LAYOUT_NODE_ID } from '@/document/layoutTypes'
 import { createDocumentPageLayout, getDocumentBounds, getPageBounds } from '@/document/pageLayout'
 import { useDocumentStore } from '@/state/documentStore'
+import { layoutEditor } from '@/state/editorStore'
 import { useWorkspaceStore } from '@/state/workspaceStore'
 import { ViewportStatisticsOverlay } from './ViewportStatisticsOverlay'
 import styles from './CanvasViewport.module.css'
@@ -53,11 +58,26 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
 
     const overlayBoxLayer = new OverlayBoxLayer({
       canvas: engine.createLayerCanvas(),
-      getDocument: () => useDocumentStore.getState().document,
+      getDocument: () => layoutEditor.getDocument(),
       getIsCullingEnabled: () => useWorkspaceStore.getState().isViewportCullingEnabled,
       onContextRestored: () => engine.markDirty('overlayBoxes'),
     })
     engine.addLayer(overlayBoxLayer)
+
+    const interactionLayer = new InteractionLayer(
+      engine.createLayerCanvas(),
+      () => layoutEditor.getDocument(),
+      () => layoutEditor.getInteractionState(),
+    )
+    engine.addLayer(interactionLayer)
+
+    const unsubscribeFromEditor = layoutEditor.subscribe((changeKind) => {
+      if (changeKind === 'geometry' || changeKind === 'document') {
+        overlayBoxLayer.invalidateDocument()
+        engine.markDirty(overlayBoxLayer.name)
+      }
+      engine.markDirty(interactionLayer.name)
+    })
 
     let lastSeenCullingSetting = useWorkspaceStore.getState().isViewportCullingEnabled
     const unsubscribeFromWorkspace = useWorkspaceStore.subscribe((state) => {
@@ -68,19 +88,47 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
       engine.markDirty(overlayBoxLayer.name)
     })
 
-    let lastSeenDocument = useDocumentStore.getState().document
-    const unsubscribeFromDocument = useDocumentStore.subscribe((state) => {
-      if (state.document === lastSeenDocument) {
+    const selectAtWorldPoint = async (
+      worldPoint: { x: number; y: number },
+      mode: 'replace' | 'toggle',
+    ) => {
+      const nodeId = await useDocumentStore.getState().hitTestAtWorldPoint(worldPoint.x, worldPoint.y)
+      layoutEditor.selectNode(nodeId, mode)
+    }
+
+    let isHoverHitTestInFlight = false
+    const updateHover = async (worldPoint: { x: number; y: number } | null) => {
+      if (!worldPoint) {
+        layoutEditor.setHoveredNodeId(NO_LAYOUT_NODE_ID)
         return
       }
-      lastSeenDocument = state.document
-      overlayBoxLayer.invalidateDocument()
-      engine.markDirty(overlayBoxLayer.name)
-    })
+      // One outstanding hover query at a time; the next pointer move re-issues it, so
+      // dropping intermediate positions costs nothing and bounds the message traffic.
+      if (isHoverHitTestInFlight) {
+        return
+      }
+      isHoverHitTestInFlight = true
+      try {
+        const nodeId = await useDocumentStore.getState().hitTestAtWorldPoint(worldPoint.x, worldPoint.y)
+        layoutEditor.setHoveredNodeId(nodeId)
+      } finally {
+        isHoverHitTestInFlight = false
+      }
+    }
 
     const inputController = new ViewportInputController({
       element: container,
       engine,
+      gestureHandlers: [
+        new BoxEditGestureHandler({ editor: layoutEditor, getPageLayout: () => engine.getPageLayout() }),
+        new MarqueeSelectGestureHandler({
+          editor: layoutEditor,
+          getPageLayout: () => engine.getPageLayout(),
+          onToggleAtWorldPoint: (worldPoint) => {
+            void selectAtWorldPoint(worldPoint, 'toggle')
+          },
+        }),
+      ],
       onFitDocumentRequested: () =>
         engine.setCamera(
           fitWorldRectInViewport(
@@ -88,10 +136,30 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
             engine.getViewportSize(),
           ),
         ),
-      onTap: (worldPoint) => {
-        void useDocumentStore.getState().selectNodeAtWorldPoint(worldPoint.x, worldPoint.y)
+      onTap: (worldPoint, event) => {
+        void selectAtWorldPoint(worldPoint, event.shiftKey ? 'toggle' : 'replace')
+      },
+      onHover: (worldPoint) => {
+        void updateHover(worldPoint)
       },
     })
+
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      const isUndoRedoChord = event.metaKey || event.ctrlKey
+      if (isUndoRedoChord && event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) {
+          layoutEditor.redo()
+        } else {
+          layoutEditor.undo()
+        }
+        return
+      }
+      if (event.key === 'Escape') {
+        layoutEditor.clearSelection()
+      }
+    }
+    window.addEventListener('keydown', handleWindowKeyDown)
 
     engine.setCamera(
       fitWorldRectInViewport(
@@ -108,7 +176,8 @@ export function CanvasViewport({ pageCount, documentSeed }: CanvasViewportProps)
 
     return () => {
       window.clearInterval(layerStatisticsInterval)
-      unsubscribeFromDocument()
+      window.removeEventListener('keydown', handleWindowKeyDown)
+      unsubscribeFromEditor()
       unsubscribeFromWorkspace()
       inputController.dispose()
       engine.dispose()

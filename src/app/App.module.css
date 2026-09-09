@@ -109,3 +109,14 @@
   background: rgba(210, 153, 34, 0.14);
   color: var(--warning);
 }
+
+.historyControls {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

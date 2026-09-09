@@ -60,8 +60,11 @@ test.describe('bounding box overlay', () => {
     // Walk a short vertical line so the click lands on printed content, not a margin.
     for (const offsetY of [220, 260, 300, 340, 380, 420, 460, 500]) {
       await viewport.click({ position: { x: 520, y: offsetY } })
-      if (await page.getByTestId('selection-label').count()) {
+      try {
+        await expect(page.getByTestId('selection-label')).toBeVisible({ timeout: 1_500 })
         break
+      } catch {
+        continue
       }
     }
 

@@ -1,7 +1,9 @@
 import { useEffect } from 'react'
 import { CanvasViewport } from '@/features/viewport/CanvasViewport'
+import { SelectionInspector } from '@/features/inspector/SelectionInspector'
 import { WorkspaceStatusBar } from '@/features/workspace/WorkspaceStatusBar'
 import { useDocumentStore } from '@/state/documentStore'
+import { layoutEditor, useEditorStore } from '@/state/editorStore'
 import {
   DOCUMENT_PRESETS,
   useActiveDocumentPreset,
@@ -18,6 +20,10 @@ export function App() {
   const loadDocumentPreset = useDocumentStore((state) => state.loadPreset)
   const isViewportCullingEnabled = useWorkspaceStore((state) => state.isViewportCullingEnabled)
   const setViewportCullingEnabled = useWorkspaceStore((state) => state.setViewportCullingEnabled)
+  const canUndo = useEditorStore((state) => state.canUndo)
+  const canRedo = useEditorStore((state) => state.canRedo)
+  const nextUndoLabel = useEditorStore((state) => state.nextUndoLabel)
+  const nextRedoLabel = useEditorStore((state) => state.nextRedoLabel)
 
   useEffect(() => {
     void loadDocumentPreset(activePreset)
@@ -47,6 +53,27 @@ export function App() {
           })}
         </div>
 
+        <div className={styles.historyControls}>
+          <button
+            type="button"
+            className={styles.toggle}
+            disabled={!canUndo}
+            title={nextUndoLabel ? `Undo ${nextUndoLabel}` : 'Nothing to undo'}
+            onClick={() => layoutEditor.undo()}
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            className={styles.toggle}
+            disabled={!canRedo}
+            title={nextRedoLabel ? `Redo ${nextRedoLabel}` : 'Nothing to redo'}
+            onClick={() => layoutEditor.redo()}
+          >
+            Redo
+          </button>
+        </div>
+
         <button
           type="button"
           className={isViewportCullingEnabled ? styles.toggle : styles.toggleActive}
@@ -66,7 +93,7 @@ export function App() {
           />
         </main>
         <aside className={styles.sidePanel}>
-          <div className={styles.placeholder}>Structure tree</div>
+          <SelectionInspector />
         </aside>
       </div>
 
