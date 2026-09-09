@@ -25,6 +25,25 @@ async function readPageRasterSignature(page: Page): Promise<number> {
   }, PAGE_RASTER_CANVAS)
 }
 
+/**
+ * Page tiles stream in from a worker, so the canvas can still be changing for reasons
+ * that have nothing to do with the camera. Wait until two consecutive reads agree.
+ */
+async function waitForStablePageRaster(page: Page): Promise<number> {
+  let previousSignature = await readPageRasterSignature(page)
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    await page.waitForTimeout(150)
+    const signature = await readPageRasterSignature(page)
+    if (signature === previousSignature) {
+      return signature
+    }
+    previousSignature = signature
+  }
+
+  throw new Error('Page raster never settled')
+}
+
 test.describe('viewport navigation', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
@@ -37,7 +56,7 @@ test.describe('viewport navigation', () => {
 
   test('pans the document while the pointer is held', async ({ page }) => {
     const viewportBox = await page.locator(CANVAS_CONTAINER).boundingBox()
-    const signatureBeforePan = await readPageRasterSignature(page)
+    const signatureBeforePan = await waitForStablePageRaster(page)
 
     await page.mouse.move(viewportBox!.x + 200, viewportBox!.y + 600)
     await page.mouse.down()
@@ -75,11 +94,11 @@ test.describe('viewport navigation', () => {
       )
     }, CANVAS_CONTAINER)
 
-    const signatureAfterPhantomRelease = await readPageRasterSignature(page)
+    const signatureAfterPhantomRelease = await waitForStablePageRaster(page)
 
     await page.mouse.move(viewportBox!.x + 900, viewportBox!.y + 120, { steps: 10 })
     await page.mouse.move(viewportBox!.x + 300, viewportBox!.y + 780, { steps: 10 })
-    await page.waitForTimeout(200)
+    await page.waitForTimeout(300)
 
     expect(await readPageRasterSignature(page)).toBe(signatureAfterPhantomRelease)
   })
